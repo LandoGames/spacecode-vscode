@@ -10,7 +10,8 @@ export class HotspotToolPanel {
   private _currentSceneId: string = 'station';
 
   public static createOrShow(extensionUri: vscode.Uri, sceneId?: string) {
-    const column = vscode.ViewColumn.Beside;
+    // Open in main editor area (full screen modal-like)
+    const column = vscode.ViewColumn.One;
 
     if (HotspotToolPanel.currentPanel) {
       HotspotToolPanel.currentPanel._panel.reveal(column);
@@ -22,7 +23,7 @@ export class HotspotToolPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'spacecodeHotspotTool',
-      'Hotspot Editor',
+      '🛸 Hotspot Editor',
       column,
       {
         enableScripts: true,

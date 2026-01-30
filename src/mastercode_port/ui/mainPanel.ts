@@ -39,6 +39,16 @@ interface ChatState {
   chatCounter?: number;
 }
 
+interface AutoexecuteJob {
+  id: string;
+  action: string;
+  sector: string;
+  docTarget: string;
+  context: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created: number;
+}
+
 export class MainPanel {
   public static currentPanel: MainPanel | undefined;
   private static readonly viewType = 'spacecode.mainPanel';
@@ -303,12 +313,51 @@ export class MainPanel {
     this._panel.webview.postMessage(message);
   }
 
+  private _loadJobs(): AutoexecuteJob[] {
+    return this._context.globalState.get<AutoexecuteJob[]>('spacecode.autoexecuteJobs', []);
+  }
+
+  private _saveJobs(jobs: AutoexecuteJob[]): void {
+    this._context.globalState.update('spacecode.autoexecuteJobs', jobs);
+  }
+
+  private _enqueueJob(job: Omit<AutoexecuteJob, 'created' | 'status'>, status: AutoexecuteJob['status'] = 'pending'): AutoexecuteJob {
+    const jobs = this._loadJobs();
+    const newJob: AutoexecuteJob = {
+      ...job,
+      status,
+      created: Date.now()
+    };
+    jobs.unshift(newJob);
+    this._saveJobs(jobs.slice(0, 50));
+    this._postMessage({ type: 'autoexecuteJobs', jobs });
+    return newJob;
+  }
+
+  private _updateJobStatus(jobId: string, status: AutoexecuteJob['status']): void {
+    const jobs = this._loadJobs().map(job => job.id === jobId ? { ...job, status } : job);
+    this._saveJobs(jobs);
+    this._postMessage({ type: 'autoexecuteJobs', jobs });
+  }
+
+  private _postJobList(): void {
+    this._postMessage({ type: 'autoexecuteJobs', jobs: this._loadJobs() });
+  }
+
   private _requireAutoexecute(action: string): boolean {
     if (this._autoexecuteEnabled) return true;
+    const context = this._contextPreviewText.replace(/\\n{2,}/g, '\\n\\n');
+    this._enqueueJob({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+      action,
+      sector: this._shipSectorId,
+      docTarget: this._docTarget,
+      context
+    });
     this._postMessage({
       type: 'autoexecuteBlocked',
       action,
-      message: `${action} is gated when Autoexecute is off. Enable Autoexecute to proceed.`
+      message: `${action} is gated when Autoexecute is off; added to Approval Queue.`
     });
     return false;
   }
@@ -426,6 +475,22 @@ export class MainPanel {
       case 'docTargetChanged':
         this._docTarget = typeof message.docTarget === 'string' ? message.docTarget : '';
         this._scheduleContextPreviewSend();
+        break;
+
+      case 'autoexecuteList':
+        this._postJobList();
+        break;
+
+      case 'autoexecuteApprove':
+        if (typeof message.jobId === 'string') {
+          this._updateJobStatus(message.jobId, 'approved');
+        }
+        break;
+
+      case 'autoexecuteReject':
+        if (typeof message.jobId === 'string') {
+          this._updateJobStatus(message.jobId, 'rejected');
+        }
         break;
 
       case 'stop':
@@ -1966,6 +2031,37 @@ export class MainPanel {
       padding: 4px 10px;
       border-radius: 999px;
       font-size: 11px;
+    }
+
+    .job-queue {
+      margin-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .job-entry {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .job-entry strong {
+      color: var(--text-primary);
+    }
+
+    .job-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
     }
 
     .tab-content {
@@ -4038,18 +4134,26 @@ export class MainPanel {
 	          <div class="context-preview-box" id="contextPreviewBox">(context will appear here)</div>
 	        </div>
 
-	        <div class="doc-gate">
-	          <label for="docTargetSelect">Documentation Target (required outside Yard)</label>
-	          <select id="docTargetSelect">
-	            <option value="">Select a docs file...</option>
-	          </select>
-	          <div style="display:flex; justify-content:flex-end; gap:6px;">
-	            <button class="btn-secondary" onclick="refreshDocTargets()" style="padding:4px 10px;">Refresh</button>
-	          </div>
-	        </div>
+        <div class="doc-gate">
+          <label for="docTargetSelect">Documentation Target (required outside Yard)</label>
+          <select id="docTargetSelect">
+            <option value="">Select a docs file...</option>
+          </select>
+          <div style="display:flex; justify-content:flex-end; gap:6px;">
+            <button class="btn-secondary" onclick="refreshDocTargets()" style="padding:4px 10px;">Refresh</button>
+          </div>
+        </div>
 
-	        <div class="control-subtitle" id="shipStatusText">Select a sector to focus context and gates.</div>
-	        <div class="sector-list" id="shipSectorList"></div>
+        <div class="job-queue">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="font-size:12px;">Approval Queue</strong>
+            <button class="btn-secondary" onclick="requestJobList()" style="padding:4px 10px;">Refresh</button>
+          </div>
+          <div id="jobList" class="job-list"></div>
+        </div>
+
+        <div class="control-subtitle" id="shipStatusText">Select a sector to focus context and gates.</div>
+        <div class="sector-list" id="shipSectorList"></div>
 	      </div>
 	    </div>
 	  </div><!-- End right-pane -->
@@ -4426,16 +4530,59 @@ export class MainPanel {
 	      if (box) box.textContent = currentContextPreview || '(no context)';
 	    }
 
-	    function copyContextPreview() {
-	      const text = currentContextPreview || '';
-	      if (!text) return;
-	      if (navigator.clipboard && navigator.clipboard.writeText) {
-	        navigator.clipboard.writeText(text);
-	        shipSetStatus('Context copied.');
-	      } else {
-	        shipSetStatus('Clipboard not available.');
-	      }
-	    }
+    function copyContextPreview() {
+      const text = currentContextPreview || '';
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        shipSetStatus('Context copied.');
+      } else {
+        shipSetStatus('Clipboard not available.');
+      }
+    }
+
+    function renderJobList(jobs) {
+      const list = document.getElementById('jobList');
+      if (!list) return;
+      list.innerHTML = '';
+      if (!Array.isArray(jobs) || jobs.length === 0) {
+        list.innerHTML = '<div style="color: var(--text-secondary); font-size:11px;">No pending approvals.</div>';
+        return;
+      }
+      jobs.forEach(job => {
+        const entry = document.createElement('div');
+        entry.className = 'job-entry';
+        entry.innerHTML = \`<strong>\${job.action}</strong>
+          <div>Sector: \${job.sector}</div>
+          <div>Doc: \${job.docTarget || '(none)'}</div>
+          <div style="font-size:10px; color:var(--text-secondary);">status: \${job.status}</div>\`;
+        const actions = document.createElement('div');
+        actions.className = 'job-actions';
+        if (job.status === 'pending') {
+          const approve = document.createElement('button');
+          approve.textContent = 'Approve';
+          approve.className = 'btn-secondary';
+          approve.onclick = () => vscode.postMessage({ type: 'autoexecuteApprove', jobId: job.id });
+          const reject = document.createElement('button');
+          reject.textContent = 'Reject';
+          reject.className = 'btn-secondary';
+          reject.onclick = () => vscode.postMessage({ type: 'autoexecuteReject', jobId: job.id });
+          actions.appendChild(approve);
+          actions.appendChild(reject);
+        } else {
+          const span = document.createElement('span');
+          span.style.opacity = '0.7';
+          span.textContent = job.status.toUpperCase();
+          actions.appendChild(span);
+        }
+        entry.appendChild(actions);
+        list.appendChild(entry);
+      });
+    }
+
+    function requestJobList() {
+      vscode.postMessage({ type: 'autoexecuteList' });
+    }
 
 	    // --- Ship UI (metaphor layer; always visible) ---
 	    // Keep the exterior view clickable (7 big hotspots), and distribute detail items inside each.
@@ -6905,6 +7052,10 @@ function stationRenderScene() {
 
         case 'shipDocsStatus':
           shipSetStatus(msg.summary || 'Docs status updated.');
+          break;
+
+        case 'autoexecuteJobs':
+          renderJobList(msg.jobs || []);
           break;
 
         case 'autoexecuteBlocked':

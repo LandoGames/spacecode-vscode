@@ -1,0 +1,276 @@
+{
+  "name": "spacecode",
+  "displayName": "SpaceCode",
+  "description": "Chat-first agentic Unity development: context packs, gates, jobs, and a spaceship UI.",
+  "version": "0.0.1",
+  "publisher": "landogames",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "spacecode.openPanel",
+        "title": "SpaceCode: Open Panel",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "spacecode.newChat",
+        "title": "SpaceCode: New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "spacecode.reviewCode",
+        "title": "SpaceCode: Review Selected Code"
+      },
+      {
+        "command": "spacecode.askClaude",
+        "title": "SpaceCode: Ask Claude"
+      },
+      {
+        "command": "spacecode.askGPT",
+        "title": "SpaceCode: Ask GPT"
+      },
+      {
+        "command": "spacecode.masterMind",
+        "title": "SpaceCode: MasterMind Mode (Claude + GPT)",
+        "icon": "$(symbol-event)"
+      },
+      {
+        "command": "spacecode.configureKeys",
+        "title": "SpaceCode: Configure API Keys"
+      },
+      {
+        "command": "spacecode.showSettings",
+        "title": "SpaceCode: Settings"
+      },
+      {
+        "command": "spacecode.showLogs",
+        "title": "SpaceCode: Show Logs"
+      },
+      {
+        "command": "spacecode.showMcpLogs",
+        "title": "SpaceCode: Show MCP Logs"
+      },
+      {
+        "command": "spacecode.showApiLogs",
+        "title": "SpaceCode: Show API Logs"
+      },
+      {
+        "command": "spacecode.showToolsLogs",
+        "title": "SpaceCode: Show Tools Logs"
+      },
+      {
+        "command": "spacecode.clearLogs",
+        "title": "SpaceCode: Clear All Logs"
+      },
+      {
+        "command": "spacecode.showAgents",
+        "title": "SpaceCode: Open Agents"
+      },
+      {
+        "command": "spacecode.importWorkflow",
+        "title": "SpaceCode: Import Workflow"
+      },
+      {
+        "command": "spacecode.exportWorkflow",
+        "title": "SpaceCode: Export Workflow"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "spacecode.reviewCode",
+          "group": "spacecode@1",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "spacecode.askClaude",
+          "group": "spacecode@2"
+        },
+        {
+          "command": "spacecode.askGPT",
+          "group": "spacecode@3"
+        },
+        {
+          "command": "spacecode.masterMind",
+          "group": "spacecode@4"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "spacecode.openPanel",
+          "when": "true"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "spacecode.openPanel",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      },
+      {
+        "command": "spacecode.newChat",
+        "key": "ctrl+shift+n",
+        "mac": "cmd+shift+n",
+        "when": "spacecode.panelFocused"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "spacecode",
+          "title": "SpaceCode",
+          "icon": "media/activitybar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "spacecode": [
+        {
+          "type": "webview",
+          "id": "spacecode.sidebarView",
+          "name": "SpaceCode",
+          "icon": "media/activitybar-icon.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SpaceCode",
+      "properties": {
+        "spacecode.claudeConnectionMethod": {
+          "type": "string",
+          "default": "cli",
+          "enum": [
+            "api",
+            "cli"
+          ],
+          "enumDescriptions": [
+            "Use Anthropic API with API key (pay-per-token)",
+            "Use Claude CLI with web account (Claude Pro subscription)"
+          ],
+          "description": "How to connect to Claude"
+        },
+        "spacecode.gptConnectionMethod": {
+          "type": "string",
+          "default": "cli",
+          "enum": [
+            "api",
+            "cli"
+          ],
+          "enumDescriptions": [
+            "Use OpenAI API with API key (pay-per-token)",
+            "Use Codex CLI with web account (ChatGPT Plus subscription)"
+          ],
+          "description": "How to connect to GPT"
+        },
+        "spacecode.claudeApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API Key for Claude (only needed for API connection method)"
+        },
+        "spacecode.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API Key for GPT (only needed for API connection method)"
+        },
+        "spacecode.claudeModel": {
+          "type": "string",
+          "default": "claude-sonnet-4-20250514",
+          "enum": [
+            "claude-opus-4-20250514",
+            "claude-sonnet-4-20250514",
+            "claude-3-5-haiku-20241022"
+          ],
+          "description": "Claude model to use"
+        },
+        "spacecode.gptModel": {
+          "type": "string",
+          "default": "gpt-5.2-codex",
+          "enum": [
+            "gpt-5.2-codex",
+            "gpt-5.2",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex-mini"
+          ],
+          "enumDescriptions": [
+            "Most advanced agentic coding model (recommended)",
+            "General-purpose agentic model",
+            "Optimized for long-horizon agentic coding",
+            "Smaller, cost-effective coding model"
+          ],
+          "description": "GPT model to use"
+        },
+        "spacecode.defaultMode": {
+          "type": "string",
+          "default": "mastermind",
+          "enum": [
+            "claude",
+            "gpt",
+            "mastermind"
+          ],
+          "description": "Default AI mode when opening panel"
+        },
+        "spacecode.maxConversationTurns": {
+          "type": "number",
+          "default": 4,
+          "minimum": 2,
+          "maximum": 20,
+          "description": "Maximum back-and-forth turns in MasterMind mode (2-20)"
+        },
+        "spacecode.mastermindResponseStyle": {
+          "type": "string",
+          "default": "concise",
+          "enum": [
+            "concise",
+            "detailed"
+          ],
+          "enumDescriptions": [
+            "Short, focused responses (recommended)",
+            "Longer, more detailed responses"
+          ],
+          "description": "How verbose should AI responses be in MasterMind mode"
+        },
+        "spacecode.mastermindAutoSummarize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically generate a summary at the end of MasterMind conversations"
+        },
+        "spacecode.showCostNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show cost notifications after API calls"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "vscode:prepublish": "npm run build",
+    "validate:station": "node scripts/validate-station-map.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.19.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@xenova/transformers": "^2.17.0",
+    "drawflow": "^0.0.60",
+    "openai": "^4.70.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

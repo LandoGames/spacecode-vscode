@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run SpaceCode Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/spacecode-vscode"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/spacecode-vscode/dist/**/*.js"
+      ]
+    }
+  ]
+}

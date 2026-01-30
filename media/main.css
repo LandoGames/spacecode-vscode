@@ -1,0 +1,220 @@
+:root {
+  --bg: var(--vscode-editor-background);
+  --fg: var(--vscode-editor-foreground);
+  --muted: var(--vscode-descriptionForeground);
+  --border: var(--vscode-panel-border);
+  --input: var(--vscode-input-background);
+  --accent: #a855f7;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.layout {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 10px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.left, .right {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 85%, #000);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.headerBtns {
+  display: flex;
+  gap: 6px;
+}
+
+button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+button:hover {
+  background: color-mix(in srgb, var(--bg) 75%, #fff);
+}
+
+button.active {
+  border-color: var(--accent);
+}
+
+.messages {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
+.msg.user {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+}
+
+.msg.assistant {
+  border-color: color-mix(in srgb, #06b6d4 65%, var(--border));
+}
+
+.msg.system {
+  color: var(--muted);
+}
+
+.composer {
+  border-top: 1px solid var(--border);
+  padding: 10px;
+  background: color-mix(in srgb, var(--bg) 88%, #000);
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.composerRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+select {
+  background: var(--input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.shipWrap {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.shipTitle {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.shipCanvas {
+  position: relative;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  height: 280px;
+  background: color-mix(in srgb, var(--bg) 90%, #111);
+}
+
+.shipImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hotspot {
+  position: absolute;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.hotspot:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.shipHint {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel {
+  padding: 10px;
+  overflow: auto;
+  flex: 1;
+}
+
+.panelTitle {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.panelBody {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--bg) 85%, #000);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  white-space: pre-wrap;
+}

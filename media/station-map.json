@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "startScene": "station",
+  "imageWidth": 2752,
+  "imageHeight": 1536,
+  "scenes": {
+    "station": {
+      "title": "Station Exterior",
+      "image": "imgs/Space Station.jpeg",
+      "hotspots": [
+        {
+          "id": "bridge",
+          "label": "Command Bridge",
+          "points": [
+            {"x": 1320, "y": 93},
+            {"x": 1130, "y": 222},
+            {"x": 1141, "y": 350},
+            {"x": 1195, "y": 410},
+            {"x": 1346, "y": 441},
+            {"x": 1512, "y": 432},
+            {"x": 1607, "y": 374},
+            {"x": 1624, "y": 234},
+            {"x": 1538, "y": 143},
+            {"x": 1413, "y": 93},
+            {"x": 1313, "y": 95}
+          ],
+          "targetScene": "bridge"
+        },
+        {
+          "id": "scanner",
+          "label": "Scanner Bay",
+          "points": [
+            {"x": 518, "y": 300},
+            {"x": 394, "y": 452},
+            {"x": 313, "y": 659},
+            {"x": 322, "y": 751},
+            {"x": 513, "y": 877},
+            {"x": 688, "y": 886},
+            {"x": 754, "y": 795},
+            {"x": 762, "y": 646},
+            {"x": 683, "y": 538},
+            {"x": 617, "y": 491},
+            {"x": 518, "y": 300}
+          ],
+          "targetScene": "scanner"
+        },
+        {
+          "id": "vault",
+          "label": "Cargo Vault",
+          "points": [
+            {"x": 791, "y": 884},
+            {"x": 529, "y": 1047},
+            {"x": 544, "y": 1370},
+            {"x": 580, "y": 1413},
+            {"x": 914, "y": 1505},
+            {"x": 1066, "y": 1390},
+            {"x": 1152, "y": 1082},
+            {"x": 1152, "y": 1011},
+            {"x": 1100, "y": 950},
+            {"x": 791, "y": 886}
+          ],
+          "targetScene": "vault"
+        },
+        {
+          "id": "core",
+          "label": "Reactor Core",
+          "points": [
+            {"x": 1230, "y": 612},
+            {"x": 1139, "y": 654},
+            {"x": 1131, "y": 839},
+            {"x": 1239, "y": 921},
+            {"x": 1461, "y": 936},
+            {"x": 1576, "y": 914},
+            {"x": 1650, "y": 837},
+            {"x": 1648, "y": 725},
+            {"x": 1624, "y": 652},
+            {"x": 1534, "y": 608},
+            {"x": 1241, "y": 612}
+          ],
+          "targetScene": "core"
+        },
+        {
+          "id": "docking",
+          "label": "Docking Ring",
+          "points": [
+            {"x": 1313, "y": 1218},
+            {"x": 1838, "y": 1181},
+            {"x": 2188, "y": 1097},
+            {"x": 2188, "y": 1260},
+            {"x": 1851, "y": 1366},
+            {"x": 1309, "y": 1406},
+            {"x": 1313, "y": 1225}
+          ],
+          "targetScene": "docking"
+        },
+        {
+          "id": "comms",
+          "label": "Comms Array",
+          "points": [
+            {"x": 2407, "y": 284},
+            {"x": 2188, "y": 786},
+            {"x": 2124, "y": 879},
+            {"x": 2113, "y": 954},
+            {"x": 2384, "y": 998},
+            {"x": 2418, "y": 1159},
+            {"x": 2497, "y": 1159},
+            {"x": 2547, "y": 1080},
+            {"x": 2563, "y": 859},
+            {"x": 2525, "y": 802},
+            {"x": 2409, "y": 284}
+          ],
+          "targetScene": "comms"
+        },
+        {
+          "id": "guard",
+          "label": "Armory",
+          "points": [
+            {"x": 1889, "y": 161},
+            {"x": 2038, "y": 317},
+            {"x": 2043, "y": 396},
+            {"x": 2091, "y": 471},
+            {"x": 2091, "y": 527},
+            {"x": 1944, "y": 595},
+            {"x": 1897, "y": 601},
+            {"x": 1677, "y": 573},
+            {"x": 1648, "y": 474},
+            {"x": 1681, "y": 419},
+            {"x": 1714, "y": 403},
+            {"x": 1712, "y": 331},
+            {"x": 1888, "y": 159}
+          ],
+          "targetScene": "guard"
+        }
+      ]
+    },
+    "bridge":  { "title": "Command Bridge", "image": "imgs/Bridge Interior.jpeg", "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] },
+    "core":    { "title": "Reactor Core",   "image": "imgs/Engine Room.png",      "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] },
+    "vault":   { "title": "Cargo Vault",    "image": "imgs/Cargo Holder.png",     "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] },
+    "docking": { "title": "Gate Control",   "image": "imgs/Gate Control .png",    "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] },
+    "guard":   { "title": "Armory",         "image": "imgs/Armory.png",           "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] },
+    "scanner": { "title": "Scanner Bay",    "image": "imgs/Scannery Bay.png",     "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] },
+    "comms":   { "title": "Comms Deck",     "image": "imgs/Comms Deck.png",       "hotspots": [{"id": "back", "points": [{"x": 50, "y": 50}, {"x": 350, "y": 50}, {"x": 350, "y": 150}, {"x": 50, "y": 150}], "targetScene": "station", "label": "← Back to Station"}] }
+  }
+}

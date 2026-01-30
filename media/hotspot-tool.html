@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Station Polygon Tracer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background: #0b0f1a;
+      color: #f5f5f5;
+    }
+    header {
+      padding: 1rem;
+      background: #111827;
+      text-align: center;
+      border-bottom: 1px solid #1f2937;
+    }
+    header p { margin: 0.5rem 0 0; color: #9ca3af; }
+    #workspace {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 1rem;
+      padding: 1rem;
+    }
+    #image-wrapper {
+      position: relative;
+      background: #05080f;
+      border: 2px solid #1f2937;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #station-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    #svg-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #click-overlay {
+      position: absolute;
+      inset: 0;
+      cursor: crosshair;
+    }
+    #controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      overflow-y: auto;
+    }
+    button {
+      padding: 0.65rem;
+      border-radius: 0.4rem;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .secondary { background: #111827; border: 1px solid #374151; }
+    .secondary:hover { background: #1f2937; }
+    .success { background: #059669; }
+    .success:hover { background: #047857; }
+    label { font-size: 0.9rem; display: block; margin-bottom: 0.25rem; color: #9ca3af; }
+    input, textarea, select {
+      width: 100%;
+      padding: 0.65rem;
+      border-radius: 0.4rem;
+      border: 1px solid #374151;
+      background: #0b0f1a;
+      color: #f5f5f5;
+      font-family: inherit;
+      font-size: 14px;
+    }
+    select { cursor: pointer; }
+    textarea {
+      min-height: 140px;
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 11px;
+      resize: vertical;
+    }
+    #status {
+      font-size: 0.85rem;
+      color: #00d4ff;
+      padding: 0.5rem;
+      background: rgba(0,212,255,0.1);
+      border-radius: 4px;
+      border: 1px solid rgba(0,212,255,0.3);
+    }
+    .description {
+      font-size: 0.8rem;
+      color: #fbbf24;
+      padding: 0.5rem;
+      background: rgba(251,191,36,0.1);
+      border-radius: 4px;
+      border: 1px solid rgba(251,191,36,0.3);
+      margin-top: 0.25rem;
+    }
+    #coords-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      max-height: 100px;
+      overflow-y: auto;
+      background: #111827;
+      padding: 0.5rem;
+      border-radius: 4px;
+    }
+    #coords-list li { font-family: monospace; }
+    .btn-row { display: flex; gap: 0.5rem; }
+    .btn-row button { flex: 1; }
+    h3 { margin: 0.5rem 0; font-size: 0.9rem; color: #9ca3af; }
+    #cursor-pos {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      background: rgba(0,0,0,0.8);
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 14px;
+      color: #00d4ff;
+      pointer-events: none;
+    }
+    .sector-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .sector-badge {
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .sector-badge.done { background: #059669; color: white; }
+    .sector-badge.pending { background: #374151; color: #9ca3af; }
+    .sector-badge.current { background: #2563eb; color: white; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Space Station Polygon Tracer</h1>
+  <p>Select a sector, trace its outline on the image, then add to list. Repeat for all 7 sectors.</p>
+</header>
+
+<section id="workspace">
+  <div id="image-wrapper">
+    <img id="station-image" src="imgs/Space Station.jpeg" alt="Space Station">
+    <svg id="svg-overlay" viewBox="0 0 2752 1536" preserveAspectRatio="xMidYMid meet">
+      <!-- Completed polygons -->
+      <g id="completed-polygons"></g>
+      <!-- Current drawing -->
+      <polyline id="current-polyline" points="" fill="none" stroke="#00d4ff" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+      <polygon id="finished-polygon" points="" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="4" stroke-linejoin="round" style="display:none"/>
+      <g id="points-group"></g>
+    </svg>
+    <div id="click-overlay"></div>
+  </div>
+
+  <div id="controls">
+    <div>
+      <label for="sector-select">Select Sector to Trace</label>
+      <select id="sector-select">
+        <option value="bridge">1. Bridge - Command Bridge</option>
+        <option value="scanner">2. Scanner - Scanner Bay</option>
+        <option value="vault">3. Vault - Cargo Vault</option>
+        <option value="core">4. Core - Reactor Core</option>
+        <option value="docking">5. Docking - Docking Ring</option>
+        <option value="comms">6. Comms - Comms Array</option>
+        <option value="guard">7. Guard - Armory</option>
+      </select>
+      <div class="description" id="sector-description">
+        TOP CENTER: The hexagonal command platform with purple trim and antenna array on top of the central tower.
+      </div>
+    </div>
+
+    <div class="sector-status" id="sector-status"></div>
+
+    <div id="status">Select a sector above, then click on the image to trace its outline.</div>
+
+    <div class="btn-row">
+      <button id="undo-point" class="secondary" disabled>Undo Point</button>
+      <button id="close-polygon" disabled>Close Polygon</button>
+    </div>
+
+    <div class="btn-row">
+      <button id="add-to-all" class="success" disabled>Save & Next Sector</button>
+      <button id="clear-current" class="secondary">Clear Drawing</button>
+    </div>
+
+    <div>
+      <h3>Points (<span id="point-count">0</span>)</h3>
+      <ul id="coords-list"><li>(click image to add points)</li></ul>
+    </div>
+
+    <div>
+      <label>Current Sector JSON</label>
+      <textarea id="json-output" readonly></textarea>
+    </div>
+
+    <div>
+      <label>All Sectors - Copy this into station-map.json "hotspots" array</label>
+      <textarea id="all-regions" style="min-height:200px"></textarea>
+      <div class="btn-row" style="margin-top:0.5rem">
+        <button id="copy-all" class="secondary">Copy All JSON</button>
+        <button id="clear-all" class="secondary">Reset All</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="cursor-pos">x: 0, y: 0</div>
+
+<script>
+const SECTORS = {
+  bridge: {
+    id: 'bridge',
+    label: 'Command Bridge',
+    targetScene: 'bridge',
+    description: 'TOP CENTER: The hexagonal command platform with purple trim and antenna array on top of the central tower.'
+  },
+  scanner: {
+    id: 'scanner',
+    label: 'Scanner Bay',
+    targetScene: 'scanner',
+    description: 'LEFT SIDE: The white dome with the large satellite dish pointing upward/left, on the curved ring section.'
+  },
+  vault: {
+    id: 'vault',
+    label: 'Cargo Vault',
+    targetScene: 'vault',
+    description: 'BOTTOM LEFT: The large rectangular cargo section with the circular vault door showing green indicator lights.'
+  },
+  core: {
+    id: 'core',
+    label: 'Reactor Core',
+    targetScene: 'core',
+    description: 'CENTER: The glowing cyan/blue reactor rings in the middle of the station, below the command tower.'
+  },
+  docking: {
+    id: 'docking',
+    label: 'Docking Ring',
+    targetScene: 'docking',
+    description: 'BOTTOM CENTER: The docking area with yellow/black hazard stripes, cranes, and the docked shuttle.'
+  },
+  comms: {
+    id: 'comms',
+    label: 'Comms Array',
+    targetScene: 'comms',
+    description: 'RIGHT SIDE: The array of satellite dishes and tall antenna towers on the right side of the station.'
+  },
+  guard: {
+    id: 'guard',
+    label: 'Armory',
+    targetScene: 'guard',
+    description: 'BOTTOM RIGHT: The fortified structure with red lights near the comms array, on the lower right ring section.'
+  }
+};
+
+const overlay = document.getElementById('click-overlay');
+const statusEl = document.getElementById('status');
+const coordsList = document.getElementById('coords-list');
+const pointCount = document.getElementById('point-count');
+const polyline = document.getElementById('current-polyline');
+const polygon = document.getElementById('finished-polygon');
+const pointsGroup = document.getElementById('points-group');
+const completedPolygons = document.getElementById('completed-polygons');
+const jsonOutput = document.getElementById('json-output');
+const allRegions = document.getElementById('all-regions');
+const closeBtn = document.getElementById('close-polygon');
+const undoBtn = document.getElementById('undo-point');
+const clearCurrentBtn = document.getElementById('clear-current');
+const addToAllBtn = document.getElementById('add-to-all');
+const copyAllBtn = document.getElementById('copy-all');
+const clearAllBtn = document.getElementById('clear-all');
+const img = document.getElementById('station-image');
+const cursorPos = document.getElementById('cursor-pos');
+const sectorSelect = document.getElementById('sector-select');
+const sectorDescription = document.getElementById('sector-description');
+const sectorStatusEl = document.getElementById('sector-status');
+
+let points = [];
+let isClosed = false;
+let completedSectors = {};
+
+function getImageCoords(event) {
+  const rect = overlay.getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const imgAspect = img.naturalWidth / img.naturalHeight;
+  const containerAspect = imgRect.width / imgRect.height;
+
+  let displayedWidth, displayedHeight, offsetX, offsetY;
+
+  if (imgAspect > containerAspect) {
+    displayedWidth = imgRect.width;
+    displayedHeight = imgRect.width / imgAspect;
+    offsetX = 0;
+    offsetY = (imgRect.height - displayedHeight) / 2;
+  } else {
+    displayedHeight = imgRect.height;
+    displayedWidth = imgRect.height * imgAspect;
+    offsetX = (imgRect.width - displayedWidth) / 2;
+    offsetY = 0;
+  }
+
+  const clickX = event.clientX - imgRect.left - offsetX;
+  const clickY = event.clientY - imgRect.top - offsetY;
+  const scaleX = img.naturalWidth / displayedWidth;
+  const scaleY = img.naturalHeight / displayedHeight;
+
+  return {
+    x: Math.max(0, Math.min(img.naturalWidth, Math.round(clickX * scaleX))),
+    y: Math.max(0, Math.min(img.naturalHeight, Math.round(clickY * scaleY)))
+  };
+}
+
+function getCurrentSector() {
+  return SECTORS[sectorSelect.value];
+}
+
+function renderPolyline() {
+  const coords = points.map(p => `${p.x},${p.y}`).join(' ');
+  polyline.setAttribute('points', coords);
+  polyline.style.display = isClosed ? 'none' : 'block';
+}
+
+function renderPolygon() {
+  if (!isClosed || points.length < 3) {
+    polygon.style.display = 'none';
+    return;
+  }
+  const coords = points.map(p => `${p.x},${p.y}`).join(' ');
+  polygon.setAttribute('points', coords);
+  polygon.style.display = 'block';
+}
+
+function renderCompletedPolygons() {
+  completedPolygons.innerHTML = '';
+  Object.values(completedSectors).forEach(sector => {
+    const coords = sector.points.map(p => `${p.x},${p.y}`).join(' ');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', coords);
+    poly.setAttribute('fill', 'rgba(5,150,105,0.2)');
+    poly.setAttribute('stroke', '#059669');
+    poly.setAttribute('stroke-width', '3');
+    completedPolygons.appendChild(poly);
+  });
+}
+
+function renderPoints() {
+  pointsGroup.innerHTML = '';
+  points.forEach((p, i) => {
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', p.x);
+    circle.setAttribute('cy', p.y);
+    circle.setAttribute('r', '10');
+    circle.setAttribute('fill', i === 0 ? '#00ff88' : '#00d4ff');
+    circle.setAttribute('stroke', '#fff');
+    circle.setAttribute('stroke-width', '2');
+    pointsGroup.appendChild(circle);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', p.x);
+    text.setAttribute('y', p.y + 4);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', '#000');
+    text.setAttribute('font-size', '12');
+    text.setAttribute('font-weight', 'bold');
+    text.textContent = i + 1;
+    pointsGroup.appendChild(text);
+  });
+}
+
+function updateList() {
+  pointCount.textContent = points.length;
+  if (!points.length) {
+    coordsList.innerHTML = '<li>(click image to add points)</li>';
+    return;
+  }
+  coordsList.innerHTML = '';
+  points.forEach((p, i) => {
+    const li = document.createElement('li');
+    li.textContent = `${i + 1}. (${p.x}, ${p.y})`;
+    coordsList.appendChild(li);
+  });
+}
+
+function updateJsonOutput() {
+  const sector = getCurrentSector();
+  const data = {
+    id: sector.id,
+    label: sector.label,
+    points: points.map(({ x, y }) => ({ x, y })),
+    targetScene: sector.targetScene
+  };
+  jsonOutput.value = JSON.stringify(data, null, 2);
+}
+
+function updateAllRegionsOutput() {
+  const all = Object.values(completedSectors);
+  allRegions.value = JSON.stringify(all, null, 2);
+}
+
+function updateSectorStatus() {
+  sectorStatusEl.innerHTML = '';
+  Object.keys(SECTORS).forEach(key => {
+    const badge = document.createElement('span');
+    badge.className = 'sector-badge';
+    if (completedSectors[key]) {
+      badge.className += ' done';
+      badge.textContent = `✓ ${SECTORS[key].label}`;
+    } else if (sectorSelect.value === key) {
+      badge.className += ' current';
+      badge.textContent = `→ ${SECTORS[key].label}`;
+    } else {
+      badge.className += ' pending';
+      badge.textContent = SECTORS[key].label;
+    }
+    sectorStatusEl.appendChild(badge);
+  });
+}
+
+function updateButtons() {
+  closeBtn.disabled = points.length < 3 || isClosed;
+  undoBtn.disabled = points.length === 0 || isClosed;
+  addToAllBtn.disabled = !isClosed || points.length < 3;
+}
+
+function updateStatus() {
+  const sector = getCurrentSector();
+  if (completedSectors[sector.id]) {
+    statusEl.textContent = `"${sector.label}" already saved. Select a different sector or clear to redo.`;
+    statusEl.style.borderColor = 'rgba(5,150,105,0.5)';
+    statusEl.style.background = 'rgba(5,150,105,0.1)';
+    statusEl.style.color = '#10b981';
+  } else if (isClosed) {
+    statusEl.textContent = `Polygon closed with ${points.length} points. Click "Save & Next Sector" to continue.`;
+    statusEl.style.borderColor = 'rgba(0,212,255,0.3)';
+    statusEl.style.background = 'rgba(0,212,255,0.1)';
+    statusEl.style.color = '#00d4ff';
+  } else if (points.length === 0) {
+    statusEl.textContent = `Trace the outline of "${sector.label}". Click to add points (min 3).`;
+    statusEl.style.borderColor = 'rgba(0,212,255,0.3)';
+    statusEl.style.background = 'rgba(0,212,255,0.1)';
+    statusEl.style.color = '#00d4ff';
+  } else if (points.length < 3) {
+    statusEl.textContent = `${points.length} point(s). Need ${3 - points.length} more to close polygon.`;
+    statusEl.style.borderColor = 'rgba(251,191,36,0.3)';
+    statusEl.style.background = 'rgba(251,191,36,0.1)';
+    statusEl.style.color = '#fbbf24';
+  } else {
+    statusEl.textContent = `${points.length} points. Click "Close Polygon" when done, or keep adding.`;
+    statusEl.style.borderColor = 'rgba(0,212,255,0.3)';
+    statusEl.style.background = 'rgba(0,212,255,0.1)';
+    statusEl.style.color = '#00d4ff';
+  }
+}
+
+function clearDrawing() {
+  points = [];
+  isClosed = false;
+  polyline.setAttribute('points', '');
+  polygon.setAttribute('points', '');
+  polygon.style.display = 'none';
+  pointsGroup.innerHTML = '';
+  updateList();
+  updateJsonOutput();
+  updateButtons();
+  updateStatus();
+}
+
+function selectNextPendingSector() {
+  const keys = Object.keys(SECTORS);
+  for (const key of keys) {
+    if (!completedSectors[key]) {
+      sectorSelect.value = key;
+      break;
+    }
+  }
+  sectorDescription.textContent = getCurrentSector().description;
+  clearDrawing();
+  updateSectorStatus();
+}
+
+// Event listeners
+overlay.addEventListener('click', (e) => {
+  if (isClosed) return;
+  const sector = getCurrentSector();
+  if (completedSectors[sector.id]) {
+    statusEl.textContent = `"${sector.label}" already saved. Clear it first or select another sector.`;
+    return;
+  }
+
+  const coords = getImageCoords(e);
+  points.push(coords);
+
+  renderPolyline();
+  renderPoints();
+  updateList();
+  updateJsonOutput();
+  updateButtons();
+  updateStatus();
+});
+
+overlay.addEventListener('mousemove', (e) => {
+  const coords = getImageCoords(e);
+  cursorPos.textContent = `x: ${coords.x}, y: ${coords.y}`;
+});
+
+sectorSelect.addEventListener('change', () => {
+  sectorDescription.textContent = getCurrentSector().description;
+  clearDrawing();
+  updateSectorStatus();
+});
+
+closeBtn.addEventListener('click', () => {
+  if (points.length < 3) return;
+  isClosed = true;
+  renderPolyline();
+  renderPolygon();
+  updateButtons();
+  updateStatus();
+});
+
+undoBtn.addEventListener('click', () => {
+  if (points.length === 0 || isClosed) return;
+  points.pop();
+  renderPolyline();
+  renderPoints();
+  updateList();
+  updateJsonOutput();
+  updateButtons();
+  updateStatus();
+});
+
+clearCurrentBtn.addEventListener('click', clearDrawing);
+
+addToAllBtn.addEventListener('click', () => {
+  if (points.length < 3 || !isClosed) return;
+
+  const sector = getCurrentSector();
+  completedSectors[sector.id] = {
+    id: sector.id,
+    label: sector.label,
+    points: points.map(({ x, y }) => ({ x, y })),
+    targetScene: sector.targetScene
+  };
+
+  updateAllRegionsOutput();
+  renderCompletedPolygons();
+
+  const doneCount = Object.keys(completedSectors).length;
+  if (doneCount === 7) {
+    statusEl.textContent = `All 7 sectors complete! Copy the JSON below into station-map.json.`;
+    statusEl.style.background = 'rgba(5,150,105,0.2)';
+    statusEl.style.borderColor = 'rgba(5,150,105,0.5)';
+    statusEl.style.color = '#10b981';
+  }
+
+  selectNextPendingSector();
+});
+
+copyAllBtn.addEventListener('click', () => {
+  allRegions.select();
+  document.execCommand('copy');
+  statusEl.textContent = 'All sectors JSON copied to clipboard!';
+  setTimeout(updateStatus, 2000);
+});
+
+clearAllBtn.addEventListener('click', () => {
+  if (!confirm('Clear all completed sectors?')) return;
+  completedSectors = {};
+  completedPolygons.innerHTML = '';
+  updateAllRegionsOutput();
+  clearDrawing();
+  updateSectorStatus();
+});
+
+// Initialize
+sectorDescription.textContent = getCurrentSector().description;
+updateList();
+updateJsonOutput();
+updateButtons();
+updateStatus();
+updateSectorStatus();
+</script>
+
+</body>
+</html>

@@ -18,6 +18,7 @@ import { WorkflowEngine } from '../agents/workflowEngine';
 import { workflowStorage } from '../agents/workflowStorage';
 import { AgentWorkflow, DrawflowExport, AgentNodeConfig } from '../agents/types';
 import { PricingService } from '../services/pricingService';
+import { HotspotToolPanel } from './hotspotToolPanel';
 
 // Chat state interface for persistence
 interface ChatTab {
@@ -62,6 +63,7 @@ export class MainPanel {
   private _contextPreviewText: string = '';
   private _contextPreviewTimer: NodeJS.Timeout | undefined;
   private _lastEditorContextPreviewText: string = '';
+  private _autoexecuteEnabled: boolean = false;
   private _docTarget: string = '';
 
   public static createOrShow(
@@ -301,6 +303,16 @@ export class MainPanel {
     this._panel.webview.postMessage(message);
   }
 
+  private _requireAutoexecute(action: string): boolean {
+    if (this._autoexecuteEnabled) return true;
+    this._postMessage({
+      type: 'autoexecuteBlocked',
+      action,
+      message: `${action} is gated when Autoexecute is off. Enable Autoexecute to proceed.`
+    });
+    return false;
+  }
+
   private _collectDocFiles(dir: string, base: string, results: string[]): void {
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
     for (const entry of fs.readdirSync(dir)) {
@@ -466,6 +478,7 @@ export class MainPanel {
 
       case 'shipToggleAutoexecute':
         this._shipAutoexecute = !this._shipAutoexecute;
+        this._autoexecuteEnabled = this._shipAutoexecute;
         this._postMessage({ type: 'shipAutoexecute', enabled: this._shipAutoexecute });
         break;
 
@@ -488,7 +501,7 @@ export class MainPanel {
       }
 
       case 'shipRunGates':
-        // Stub until GateEngine + Unity Bridge are wired.
+        if (!this._requireAutoexecute('Run Gates')) break;
         this._postMessage({
           type: 'shipGateResult',
           ok: true,
@@ -497,12 +510,18 @@ export class MainPanel {
         break;
 
       case 'shipDocsStatus':
-        // Stub until docs-map + doc gates are wired.
+        if (!this._requireAutoexecute('Docs Check')) break;
         this._postMessage({
           type: 'shipDocsStatus',
           summary: '(stub) Docs status will show required doc updates for this sector.',
         });
         break;
+
+      case 'openHotspotTool': {
+        const sceneId = typeof message.sceneId === 'string' ? message.sceneId : this._shipSectorId;
+        HotspotToolPanel.createOrShow(this._extensionUri, sceneId);
+        break;
+      }
 
       case 'saveApiKeys':
         await this._saveApiKeys(message.claude, message.openai);
@@ -521,6 +540,7 @@ export class MainPanel {
         break;
 
       case 'mcpAction':
+        if (!this._requireAutoexecute('MCP Action')) break;
         await this._handleMcpAction(message.action, message.serverId);
         break;
 
@@ -608,6 +628,7 @@ export class MainPanel {
         break;
 
       case 'executeWorkflow':
+        if (!this._requireAutoexecute('Workflow Run')) break;
         await this._executeWorkflow(message.workflowId, message.input, message.drawflowData);
         break;
 
@@ -3970,7 +3991,10 @@ export class MainPanel {
 
 	  <div class="right-pane">
 	    <div class="ship-panel">
-	      <div class="ship-title">Station View</div>
+	      <div class="ship-title" style="display: flex; justify-content: space-between; align-items: center;">
+	        Station View
+	        <button class="btn-secondary" onclick="openHotspotTool()" style="padding: 4px 8px; font-size: 10px;">Edit Hotspots</button>
+	      </div>
 	      <div class="ship-canvas" id="shipCanvas">
 	        <img class="ship-image" id="shipImage" src="${stationUri}" alt="Station"
 	          onerror="if(!this.dataset.fallback){this.dataset.fallback='1'; this.src='${shipUri}';} else {this.onerror=null; this.src='${shipFallbackUri}';}" />
@@ -4810,6 +4834,10 @@ function stationRenderScene() {
 	    function shipRequestContextPack() {
 	      vscode.postMessage({ type: 'shipGetContextPack', sectorId: shipSelectedSectorId, subId: shipSelectedSubId, profile: shipGetProfile() });
 	      shipSetStatus('Requesting Context Pack...');
+	    }
+
+	    function openHotspotTool() {
+	      vscode.postMessage({ type: 'openHotspotTool', sceneId: stationSceneId });
 	    }
 
 	    function shipRunGates() {
@@ -6877,6 +6905,10 @@ function stationRenderScene() {
 
         case 'shipDocsStatus':
           shipSetStatus(msg.summary || 'Docs status updated.');
+          break;
+
+        case 'autoexecuteBlocked':
+          shipSetStatus(msg.message || 'Action blocked; enable Autoexecute.');
           break;
 
         case 'contextPreview':

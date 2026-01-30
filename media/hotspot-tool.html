@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Station Polygon Tracer</title>
+  <title>Station Hotspot Editor</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -15,12 +15,23 @@
       color: #f5f5f5;
     }
     header {
-      padding: 1rem;
+      padding: 0.75rem 1rem;
       background: #111827;
-      text-align: center;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
       border-bottom: 1px solid #1f2937;
+      flex-wrap: wrap;
     }
-    header p { margin: 0.5rem 0 0; color: #9ca3af; }
+    header h1 { margin: 0; font-size: 1.1rem; }
+    header select, header input {
+      padding: 0.5rem;
+      border-radius: 4px;
+      border: 1px solid #374151;
+      background: #0b0f1a;
+      color: #f5f5f5;
+      font-size: 13px;
+    }
     #workspace {
       flex: 1;
       display: grid;
@@ -74,6 +85,8 @@
     .secondary:hover { background: #1f2937; }
     .success { background: #059669; }
     .success:hover { background: #047857; }
+    .danger { background: #dc2626; }
+    .danger:hover { background: #b91c1c; }
     label { font-size: 0.9rem; display: block; margin-bottom: 0.25rem; color: #9ca3af; }
     input, textarea, select {
       width: 100%;
@@ -87,7 +100,7 @@
     }
     select { cursor: pointer; }
     textarea {
-      min-height: 140px;
+      min-height: 120px;
       font-family: 'Monaco', 'Consolas', monospace;
       font-size: 11px;
       resize: vertical;
@@ -100,28 +113,18 @@
       border-radius: 4px;
       border: 1px solid rgba(0,212,255,0.3);
     }
-    .description {
-      font-size: 0.8rem;
-      color: #fbbf24;
-      padding: 0.5rem;
-      background: rgba(251,191,36,0.1);
-      border-radius: 4px;
-      border: 1px solid rgba(251,191,36,0.3);
-      margin-top: 0.25rem;
-    }
     #coords-list {
       margin: 0;
-      padding: 0;
+      padding: 0.5rem;
       list-style: none;
       font-size: 0.8rem;
       line-height: 1.5;
-      max-height: 100px;
+      max-height: 80px;
       overflow-y: auto;
       background: #111827;
-      padding: 0.5rem;
       border-radius: 4px;
+      font-family: monospace;
     }
-    #coords-list li { font-family: monospace; }
     .btn-row { display: flex; gap: 0.5rem; }
     .btn-row button { flex: 1; }
     h3 { margin: 0.5rem 0; font-size: 0.9rem; color: #9ca3af; }
@@ -137,64 +140,68 @@
       color: #00d4ff;
       pointer-events: none;
     }
-    .sector-status {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-top: 0.5rem;
-    }
-    .sector-badge {
-      padding: 0.25rem 0.5rem;
+    .hotspot-item {
+      padding: 0.4rem 0.6rem;
+      margin: 0.25rem 0;
       border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 600;
+      background: #111827;
+      cursor: pointer;
+      font-size: 0.8rem;
+      border: 1px solid transparent;
     }
-    .sector-badge.done { background: #059669; color: white; }
-    .sector-badge.pending { background: #374151; color: #9ca3af; }
-    .sector-badge.current { background: #2563eb; color: white; }
+    .hotspot-item:hover { background: #1f2937; }
+    .hotspot-item.selected { border-color: #fbbf24; background: rgba(251,191,36,0.1); }
+    .scene-info {
+      padding: 0.5rem;
+      background: #111827;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    .scene-info strong { color: #00d4ff; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Space Station Polygon Tracer</h1>
-  <p>Select a sector, trace its outline on the image, then add to list. Repeat for all 7 sectors.</p>
+  <h1>🛸 Hotspot Editor</h1>
+  <label style="margin:0; display:flex; align-items:center; gap:0.5rem;">
+    Scene:
+    <select id="scene-select"></select>
+  </label>
+  <button id="download-btn" class="success">💾 Download station-map.json</button>
+  <input type="file" id="load-file" accept=".json" style="display:none;">
+  <button id="load-btn" class="secondary">📂 Load JSON</button>
 </header>
 
 <section id="workspace">
   <div id="image-wrapper">
-    <img id="station-image" src="imgs/Space Station.jpeg" alt="Space Station">
+    <img id="station-image" src="" alt="Scene">
     <svg id="svg-overlay" viewBox="0 0 2752 1536" preserveAspectRatio="xMidYMid meet">
-      <!-- Completed polygons -->
-      <g id="completed-polygons"></g>
-      <!-- Current drawing -->
-      <polyline id="current-polyline" points="" fill="none" stroke="#00d4ff" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
-      <polygon id="finished-polygon" points="" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="4" stroke-linejoin="round" style="display:none"/>
+      <g id="existing-hotspots"></g>
+      <polyline id="current-polyline" points="" fill="none" stroke="#00d4ff" stroke-width="4" stroke-linejoin="round"/>
+      <polygon id="finished-polygon" points="" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="4" style="display:none"/>
       <g id="points-group"></g>
     </svg>
     <div id="click-overlay"></div>
   </div>
 
   <div id="controls">
+    <div class="scene-info" id="scene-info">Loading...</div>
+
+    <div id="status">Click on the image to trace a hotspot polygon.</div>
+
     <div>
-      <label for="sector-select">Select Sector to Trace</label>
-      <select id="sector-select">
-        <option value="bridge">1. Bridge - Command Bridge</option>
-        <option value="scanner">2. Scanner - Scanner Bay</option>
-        <option value="vault">3. Vault - Cargo Vault</option>
-        <option value="core">4. Core - Reactor Core</option>
-        <option value="docking">5. Docking - Docking Ring</option>
-        <option value="comms">6. Comms - Comms Array</option>
-        <option value="guard">7. Guard - Armory</option>
-      </select>
-      <div class="description" id="sector-description">
-        TOP CENTER: The hexagonal command platform with purple trim and antenna array on top of the central tower.
-      </div>
+      <label>Hotspot ID</label>
+      <input type="text" id="hotspot-id" placeholder="e.g., bridge, back, sector1">
     </div>
-
-    <div class="sector-status" id="sector-status"></div>
-
-    <div id="status">Select a sector above, then click on the image to trace its outline.</div>
+    <div>
+      <label>Label</label>
+      <input type="text" id="hotspot-label" placeholder="e.g., Command Bridge">
+    </div>
+    <div>
+      <label>Target Scene (leave empty for no navigation)</label>
+      <input type="text" id="hotspot-target" placeholder="e.g., bridge, station">
+    </div>
 
     <div class="btn-row">
       <button id="undo-point" class="secondary" disabled>Undo Point</button>
@@ -202,7 +209,7 @@
     </div>
 
     <div class="btn-row">
-      <button id="add-to-all" class="success" disabled>Save & Next Sector</button>
+      <button id="add-hotspot" class="success" disabled>Add Hotspot</button>
       <button id="clear-current" class="secondary">Clear Drawing</button>
     </div>
 
@@ -212,17 +219,17 @@
     </div>
 
     <div>
-      <label>Current Sector JSON</label>
-      <textarea id="json-output" readonly></textarea>
+      <h3>Hotspots in this scene (<span id="hotspot-count">0</span>)</h3>
+      <div id="hotspot-list"></div>
+    </div>
+
+    <div class="btn-row">
+      <button id="delete-selected" class="danger secondary" disabled>Delete Selected</button>
     </div>
 
     <div>
-      <label>All Sectors - Copy this into station-map.json "hotspots" array</label>
-      <textarea id="all-regions" style="min-height:200px"></textarea>
-      <div class="btn-row" style="margin-top:0.5rem">
-        <button id="copy-all" class="secondary">Copy All JSON</button>
-        <button id="clear-all" class="secondary">Reset All</button>
-      </div>
+      <label>JSON Preview</label>
+      <textarea id="json-output" readonly></textarea>
     </div>
   </div>
 </section>
@@ -230,79 +237,64 @@
 <div id="cursor-pos">x: 0, y: 0</div>
 
 <script>
-const SECTORS = {
-  bridge: {
-    id: 'bridge',
-    label: 'Command Bridge',
-    targetScene: 'bridge',
-    description: 'TOP CENTER: The hexagonal command platform with purple trim and antenna array on top of the central tower.'
-  },
-  scanner: {
-    id: 'scanner',
-    label: 'Scanner Bay',
-    targetScene: 'scanner',
-    description: 'LEFT SIDE: The white dome with the large satellite dish pointing upward/left, on the curved ring section.'
-  },
-  vault: {
-    id: 'vault',
-    label: 'Cargo Vault',
-    targetScene: 'vault',
-    description: 'BOTTOM LEFT: The large rectangular cargo section with the circular vault door showing green indicator lights.'
-  },
-  core: {
-    id: 'core',
-    label: 'Reactor Core',
-    targetScene: 'core',
-    description: 'CENTER: The glowing cyan/blue reactor rings in the middle of the station, below the command tower.'
-  },
-  docking: {
-    id: 'docking',
-    label: 'Docking Ring',
-    targetScene: 'docking',
-    description: 'BOTTOM CENTER: The docking area with yellow/black hazard stripes, cranes, and the docked shuttle.'
-  },
-  comms: {
-    id: 'comms',
-    label: 'Comms Array',
-    targetScene: 'comms',
-    description: 'RIGHT SIDE: The array of satellite dishes and tall antenna towers on the right side of the station.'
-  },
-  guard: {
-    id: 'guard',
-    label: 'Armory',
-    targetScene: 'guard',
-    description: 'BOTTOM RIGHT: The fortified structure with red lights near the comms array, on the lower right ring section.'
+// Default station map structure
+const DEFAULT_MAP = {
+  version: 1,
+  startScene: 'station',
+  imageWidth: 2752,
+  imageHeight: 1536,
+  scenes: {
+    station: { title: 'Station Exterior', image: 'imgs/Space Station.jpeg', hotspots: [] },
+    bridge: { title: 'Command Bridge', image: 'imgs/Bridge Interior.jpeg', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] },
+    core: { title: 'Reactor Core', image: 'imgs/Engine Room.png', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] },
+    vault: { title: 'Cargo Vault', image: 'imgs/Cargo Holder.png', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] },
+    docking: { title: 'Gate Control', image: 'imgs/Gate Control .png', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] },
+    guard: { title: 'Armory', image: 'imgs/Armory.png', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] },
+    scanner: { title: 'Scanner Bay', image: 'imgs/Scannery Bay.png', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] },
+    comms: { title: 'Comms Deck', image: 'imgs/Comms Deck.png', hotspots: [{ id: 'back', label: '← Back to Station', points: [{x:50,y:50},{x:350,y:50},{x:350,y:150},{x:50,y:150}], targetScene: 'station' }] }
   }
 };
+
+let stationMap = JSON.parse(JSON.stringify(DEFAULT_MAP));
+let currentSceneId = 'station';
+let points = [];
+let isClosed = false;
+let sceneHotspots = [];
+let selectedHotspotIndex = -1;
 
 const overlay = document.getElementById('click-overlay');
 const statusEl = document.getElementById('status');
 const coordsList = document.getElementById('coords-list');
 const pointCount = document.getElementById('point-count');
+const hotspotCount = document.getElementById('hotspot-count');
 const polyline = document.getElementById('current-polyline');
 const polygon = document.getElementById('finished-polygon');
 const pointsGroup = document.getElementById('points-group');
-const completedPolygons = document.getElementById('completed-polygons');
+const existingHotspotsGroup = document.getElementById('existing-hotspots');
 const jsonOutput = document.getElementById('json-output');
-const allRegions = document.getElementById('all-regions');
 const closeBtn = document.getElementById('close-polygon');
 const undoBtn = document.getElementById('undo-point');
 const clearCurrentBtn = document.getElementById('clear-current');
-const addToAllBtn = document.getElementById('add-to-all');
-const copyAllBtn = document.getElementById('copy-all');
-const clearAllBtn = document.getElementById('clear-all');
+const addHotspotBtn = document.getElementById('add-hotspot');
+const downloadBtn = document.getElementById('download-btn');
+const loadBtn = document.getElementById('load-btn');
+const loadFile = document.getElementById('load-file');
+const deleteBtn = document.getElementById('delete-selected');
 const img = document.getElementById('station-image');
 const cursorPos = document.getElementById('cursor-pos');
-const sectorSelect = document.getElementById('sector-select');
-const sectorDescription = document.getElementById('sector-description');
-const sectorStatusEl = document.getElementById('sector-status');
+const sceneSelect = document.getElementById('scene-select');
+const sceneInfo = document.getElementById('scene-info');
+const hotspotIdInput = document.getElementById('hotspot-id');
+const hotspotLabelInput = document.getElementById('hotspot-label');
+const hotspotTargetInput = document.getElementById('hotspot-target');
+const hotspotListEl = document.getElementById('hotspot-list');
 
-let points = [];
-let isClosed = false;
-let completedSectors = {};
+function getUrlParam(name) {
+  const params = new URLSearchParams(window.location.search);
+  return params.get(name);
+}
 
 function getImageCoords(event) {
-  const rect = overlay.getBoundingClientRect();
   const imgRect = img.getBoundingClientRect();
   const imgAspect = img.naturalWidth / img.naturalHeight;
   const containerAspect = imgRect.width / imgRect.height;
@@ -332,10 +324,6 @@ function getImageCoords(event) {
   };
 }
 
-function getCurrentSector() {
-  return SECTORS[sectorSelect.value];
-}
-
 function renderPolyline() {
   const coords = points.map(p => `${p.x},${p.y}`).join(' ');
   polyline.setAttribute('points', coords);
@@ -352,16 +340,38 @@ function renderPolygon() {
   polygon.style.display = 'block';
 }
 
-function renderCompletedPolygons() {
-  completedPolygons.innerHTML = '';
-  Object.values(completedSectors).forEach(sector => {
-    const coords = sector.points.map(p => `${p.x},${p.y}`).join(' ');
+function renderExistingHotspots() {
+  existingHotspotsGroup.innerHTML = '';
+  sceneHotspots.forEach((h, idx) => {
+    if (!h.points || h.points.length < 3) return;
+    const coords = h.points.map(p => `${p.x},${p.y}`).join(' ');
     const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     poly.setAttribute('points', coords);
-    poly.setAttribute('fill', 'rgba(5,150,105,0.2)');
-    poly.setAttribute('stroke', '#059669');
-    poly.setAttribute('stroke-width', '3');
-    completedPolygons.appendChild(poly);
+    const isSelected = idx === selectedHotspotIndex;
+    poly.setAttribute('fill', isSelected ? 'rgba(251,191,36,0.3)' : 'rgba(5,150,105,0.2)');
+    poly.setAttribute('stroke', isSelected ? '#fbbf24' : '#059669');
+    poly.setAttribute('stroke-width', isSelected ? '5' : '3');
+    poly.style.cursor = 'pointer';
+    poly.style.pointerEvents = 'all';
+    poly.onclick = (e) => {
+      e.stopPropagation();
+      selectHotspot(idx);
+    };
+    existingHotspotsGroup.appendChild(poly);
+
+    // Label
+    const cx = h.points.reduce((s,p) => s + p.x, 0) / h.points.length;
+    const cy = h.points.reduce((s,p) => s + p.y, 0) / h.points.length;
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', cx);
+    text.setAttribute('y', cy);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', isSelected ? '#fbbf24' : '#10b981');
+    text.setAttribute('font-size', '28');
+    text.setAttribute('font-weight', 'bold');
+    text.style.pointerEvents = 'none';
+    text.textContent = h.label || h.id || (idx + 1);
+    existingHotspotsGroup.appendChild(text);
   });
 }
 
@@ -403,75 +413,41 @@ function updateList() {
   });
 }
 
-function updateJsonOutput() {
-  const sector = getCurrentSector();
-  const data = {
-    id: sector.id,
-    label: sector.label,
-    points: points.map(({ x, y }) => ({ x, y })),
-    targetScene: sector.targetScene
-  };
-  jsonOutput.value = JSON.stringify(data, null, 2);
-}
-
-function updateAllRegionsOutput() {
-  const all = Object.values(completedSectors);
-  allRegions.value = JSON.stringify(all, null, 2);
-}
-
-function updateSectorStatus() {
-  sectorStatusEl.innerHTML = '';
-  Object.keys(SECTORS).forEach(key => {
-    const badge = document.createElement('span');
-    badge.className = 'sector-badge';
-    if (completedSectors[key]) {
-      badge.className += ' done';
-      badge.textContent = `✓ ${SECTORS[key].label}`;
-    } else if (sectorSelect.value === key) {
-      badge.className += ' current';
-      badge.textContent = `→ ${SECTORS[key].label}`;
-    } else {
-      badge.className += ' pending';
-      badge.textContent = SECTORS[key].label;
-    }
-    sectorStatusEl.appendChild(badge);
+function updateHotspotList() {
+  hotspotCount.textContent = sceneHotspots.length;
+  hotspotListEl.innerHTML = '';
+  if (!sceneHotspots.length) {
+    hotspotListEl.innerHTML = '<div style="opacity:0.5;font-size:0.8rem;">No hotspots yet</div>';
+    return;
+  }
+  sceneHotspots.forEach((h, idx) => {
+    const div = document.createElement('div');
+    div.className = 'hotspot-item' + (idx === selectedHotspotIndex ? ' selected' : '');
+    div.textContent = `${h.id || '(no id)'} - ${h.label || '(no label)'}${h.targetScene ? ' → ' + h.targetScene : ''}`;
+    div.onclick = () => selectHotspot(idx);
+    hotspotListEl.appendChild(div);
   });
+}
+
+function selectHotspot(idx) {
+  selectedHotspotIndex = idx === selectedHotspotIndex ? -1 : idx;
+  deleteBtn.disabled = selectedHotspotIndex < 0;
+  renderExistingHotspots();
+  updateHotspotList();
+}
+
+function updateJsonOutput() {
+  jsonOutput.value = JSON.stringify(sceneHotspots, null, 2);
 }
 
 function updateButtons() {
   closeBtn.disabled = points.length < 3 || isClosed;
   undoBtn.disabled = points.length === 0 || isClosed;
-  addToAllBtn.disabled = !isClosed || points.length < 3;
+  addHotspotBtn.disabled = !isClosed || points.length < 3;
 }
 
-function updateStatus() {
-  const sector = getCurrentSector();
-  if (completedSectors[sector.id]) {
-    statusEl.textContent = `"${sector.label}" already saved. Select a different sector or clear to redo.`;
-    statusEl.style.borderColor = 'rgba(5,150,105,0.5)';
-    statusEl.style.background = 'rgba(5,150,105,0.1)';
-    statusEl.style.color = '#10b981';
-  } else if (isClosed) {
-    statusEl.textContent = `Polygon closed with ${points.length} points. Click "Save & Next Sector" to continue.`;
-    statusEl.style.borderColor = 'rgba(0,212,255,0.3)';
-    statusEl.style.background = 'rgba(0,212,255,0.1)';
-    statusEl.style.color = '#00d4ff';
-  } else if (points.length === 0) {
-    statusEl.textContent = `Trace the outline of "${sector.label}". Click to add points (min 3).`;
-    statusEl.style.borderColor = 'rgba(0,212,255,0.3)';
-    statusEl.style.background = 'rgba(0,212,255,0.1)';
-    statusEl.style.color = '#00d4ff';
-  } else if (points.length < 3) {
-    statusEl.textContent = `${points.length} point(s). Need ${3 - points.length} more to close polygon.`;
-    statusEl.style.borderColor = 'rgba(251,191,36,0.3)';
-    statusEl.style.background = 'rgba(251,191,36,0.1)';
-    statusEl.style.color = '#fbbf24';
-  } else {
-    statusEl.textContent = `${points.length} points. Click "Close Polygon" when done, or keep adding.`;
-    statusEl.style.borderColor = 'rgba(0,212,255,0.3)';
-    statusEl.style.background = 'rgba(0,212,255,0.1)';
-    statusEl.style.color = '#00d4ff';
-  }
+function updateStatus(msg) {
+  statusEl.textContent = msg || (isClosed ? 'Polygon closed. Fill in details and click "Add Hotspot".' : 'Click to add points (min 3), then close polygon.');
 }
 
 function clearDrawing() {
@@ -482,40 +458,98 @@ function clearDrawing() {
   polygon.style.display = 'none';
   pointsGroup.innerHTML = '';
   updateList();
-  updateJsonOutput();
   updateButtons();
   updateStatus();
 }
 
-function selectNextPendingSector() {
-  const keys = Object.keys(SECTORS);
-  for (const key of keys) {
-    if (!completedSectors[key]) {
-      sectorSelect.value = key;
-      break;
-    }
+function populateSceneSelect() {
+  sceneSelect.innerHTML = '';
+  if (stationMap?.scenes) {
+    Object.keys(stationMap.scenes).forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = stationMap.scenes[id].title || id;
+      if (id === currentSceneId) opt.selected = true;
+      sceneSelect.appendChild(opt);
+    });
   }
-  sectorDescription.textContent = getCurrentSector().description;
+}
+
+function loadScene(sceneId) {
+  currentSceneId = sceneId;
+  const scene = stationMap?.scenes?.[sceneId];
+  if (!scene) {
+    sceneInfo.innerHTML = '<strong>Scene not found</strong>';
+    return;
+  }
+
+  sceneInfo.innerHTML = `<strong>${scene.title || sceneId}</strong><br>Image: ${scene.image || '(none)'}`;
+
+  if (scene.image) {
+    img.src = scene.image;
+  }
+
+  // Update SVG viewBox based on image dimensions
+  const svgOverlay = document.getElementById('svg-overlay');
+  if (stationMap.imageWidth && stationMap.imageHeight) {
+    svgOverlay.setAttribute('viewBox', `0 0 ${stationMap.imageWidth} ${stationMap.imageHeight}`);
+  }
+
+  sceneHotspots = scene.hotspots ? JSON.parse(JSON.stringify(scene.hotspots)) : [];
+  selectedHotspotIndex = -1;
+  deleteBtn.disabled = true;
+
   clearDrawing();
-  updateSectorStatus();
+  renderExistingHotspots();
+  updateHotspotList();
+  updateJsonOutput();
+}
+
+function saveCurrentSceneToMap() {
+  if (stationMap?.scenes?.[currentSceneId]) {
+    stationMap.scenes[currentSceneId].hotspots = JSON.parse(JSON.stringify(sceneHotspots));
+  }
+}
+
+function downloadStationMap() {
+  saveCurrentSceneToMap();
+  const json = JSON.stringify(stationMap, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'station-map.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  updateStatus('Downloaded station-map.json! Replace the file in media/ folder.');
+}
+
+function loadStationMapFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const loaded = JSON.parse(e.target.result);
+      stationMap = loaded;
+      populateSceneSelect();
+      loadScene(stationMap.startScene || 'station');
+      updateStatus('Loaded station-map.json successfully!');
+    } catch (err) {
+      updateStatus('Error loading JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
 }
 
 // Event listeners
 overlay.addEventListener('click', (e) => {
   if (isClosed) return;
-  const sector = getCurrentSector();
-  if (completedSectors[sector.id]) {
-    statusEl.textContent = `"${sector.label}" already saved. Clear it first or select another sector.`;
-    return;
-  }
-
   const coords = getImageCoords(e);
   points.push(coords);
-
   renderPolyline();
   renderPoints();
   updateList();
-  updateJsonOutput();
   updateButtons();
   updateStatus();
 });
@@ -525,10 +559,9 @@ overlay.addEventListener('mousemove', (e) => {
   cursorPos.textContent = `x: ${coords.x}, y: ${coords.y}`;
 });
 
-sectorSelect.addEventListener('change', () => {
-  sectorDescription.textContent = getCurrentSector().description;
-  clearDrawing();
-  updateSectorStatus();
+sceneSelect.addEventListener('change', () => {
+  saveCurrentSceneToMap();
+  loadScene(sceneSelect.value);
 });
 
 closeBtn.addEventListener('click', () => {
@@ -546,61 +579,78 @@ undoBtn.addEventListener('click', () => {
   renderPolyline();
   renderPoints();
   updateList();
-  updateJsonOutput();
   updateButtons();
   updateStatus();
 });
 
 clearCurrentBtn.addEventListener('click', clearDrawing);
 
-addToAllBtn.addEventListener('click', () => {
+addHotspotBtn.addEventListener('click', () => {
   if (points.length < 3 || !isClosed) return;
 
-  const sector = getCurrentSector();
-  completedSectors[sector.id] = {
-    id: sector.id,
-    label: sector.label,
-    points: points.map(({ x, y }) => ({ x, y })),
-    targetScene: sector.targetScene
+  const hotspot = {
+    id: hotspotIdInput.value.trim() || `hotspot_${sceneHotspots.length + 1}`,
+    label: hotspotLabelInput.value.trim() || hotspotIdInput.value.trim() || `Hotspot ${sceneHotspots.length + 1}`,
+    points: points.map(({x, y}) => ({x, y})),
   };
 
-  updateAllRegionsOutput();
-  renderCompletedPolygons();
-
-  const doneCount = Object.keys(completedSectors).length;
-  if (doneCount === 7) {
-    statusEl.textContent = `All 7 sectors complete! Copy the JSON below into station-map.json.`;
-    statusEl.style.background = 'rgba(5,150,105,0.2)';
-    statusEl.style.borderColor = 'rgba(5,150,105,0.5)';
-    statusEl.style.color = '#10b981';
+  const target = hotspotTargetInput.value.trim();
+  if (target) {
+    hotspot.targetScene = target;
   }
 
-  selectNextPendingSector();
-});
+  sceneHotspots.push(hotspot);
 
-copyAllBtn.addEventListener('click', () => {
-  allRegions.select();
-  document.execCommand('copy');
-  statusEl.textContent = 'All sectors JSON copied to clipboard!';
-  setTimeout(updateStatus, 2000);
-});
+  // Clear inputs
+  hotspotIdInput.value = '';
+  hotspotLabelInput.value = '';
+  hotspotTargetInput.value = '';
 
-clearAllBtn.addEventListener('click', () => {
-  if (!confirm('Clear all completed sectors?')) return;
-  completedSectors = {};
-  completedPolygons.innerHTML = '';
-  updateAllRegionsOutput();
   clearDrawing();
-  updateSectorStatus();
+  renderExistingHotspots();
+  updateHotspotList();
+  updateJsonOutput();
+  updateStatus(`Added hotspot "${hotspot.id}". Don't forget to Download!`);
+});
+
+deleteBtn.addEventListener('click', () => {
+  if (selectedHotspotIndex < 0) return;
+  const removed = sceneHotspots.splice(selectedHotspotIndex, 1)[0];
+  selectedHotspotIndex = -1;
+  deleteBtn.disabled = true;
+  renderExistingHotspots();
+  updateHotspotList();
+  updateJsonOutput();
+  updateStatus(`Deleted "${removed.id || 'hotspot'}". Don't forget to Download!`);
+});
+
+downloadBtn.addEventListener('click', downloadStationMap);
+
+loadBtn.addEventListener('click', () => loadFile.click());
+loadFile.addEventListener('change', (e) => {
+  if (e.target.files.length > 0) {
+    loadStationMapFromFile(e.target.files[0]);
+  }
 });
 
 // Initialize
-sectorDescription.textContent = getCurrentSector().description;
-updateList();
-updateJsonOutput();
-updateButtons();
-updateStatus();
-updateSectorStatus();
+const initialScene = getUrlParam('scene') || 'station';
+currentSceneId = initialScene;
+
+// Try to load station-map.json from same directory
+fetch('station-map.json')
+  .then(res => res.ok ? res.json() : Promise.reject('Not found'))
+  .then(data => {
+    stationMap = data;
+    populateSceneSelect();
+    loadScene(currentSceneId);
+  })
+  .catch(() => {
+    // Use default map
+    populateSceneSelect();
+    loadScene(currentSceneId);
+    updateStatus('Using default map. Load your station-map.json to edit existing hotspots.');
+  });
 </script>
 
 </body>

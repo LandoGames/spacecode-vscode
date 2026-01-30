@@ -518,7 +518,7 @@ export class MainPanel {
         break;
 
       case 'openHotspotTool': {
-        const sceneId = typeof message.sceneId === 'string' ? message.sceneId : this._shipSectorId;
+        const sceneId = typeof message.sceneId === 'string' ? message.sceneId : 'station';
         HotspotToolPanel.createOrShow(this._extensionUri, sceneId);
         break;
       }

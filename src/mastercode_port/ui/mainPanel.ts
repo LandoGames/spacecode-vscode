@@ -1266,7 +1266,7 @@ export class MainPanel {
 
   // --- Ticket Methods ---
   private async _sendTicketList(): Promise<void> {
-    const tickets = this.ticketStorage.getAllTickets();
+    const tickets = await this.ticketStorage.getTickets();
     this._postMessage({ type: 'ticketList', tickets });
   }
 
@@ -2762,6 +2762,238 @@ Return ONLY the JSON, no markdown or explanation.`;
     }
   }
 
+  /**
+   * Auto-consult GPT after Claude responds (when gptConsult toggle is on).
+   * Uses sendMessage (non-streaming) to avoid polluting the chat with GPT tokens.
+   * GPT decides whether to contribute — if the topic is trivial, it stays silent.
+   */
+  private async _autoConsultGpt(userQuestion: string, claudeResponse: string, history: Array<{ role: string; content: string }>, chatId?: string, interventionLevel: string = 'balanced'): Promise<void> {
+    try {
+      const gptProvider = this.orchestrator.getGptProvider();
+      if (!gptProvider || !gptProvider.isConfigured) {
+        console.warn('[SpaceCode] GPT provider not configured, skipping auto-consultation');
+        return;
+      }
+
+      // Build condensed history (last few exchanges)
+      const recentHistory = history.slice(-6);
+      const historyText = recentHistory.length
+        ? `Recent conversation:\n${recentHistory.map((m) => {
+            const label = m.role === 'user' ? 'User' : m.role === 'claude' ? 'Claude' : m.role === 'gpt' ? 'GPT' : 'System';
+            const truncated = m.content.length > 600 ? m.content.slice(0, 600) + '...' : m.content;
+            return `${label}: ${truncated}`;
+          }).join('\n')}\n\n`
+        : '';
+
+      // Intervention level prompts
+      const interventionPrompts: Record<string, string> = {
+        silent: `You are a peer reviewer for another AI (Claude). Claude has already responded to the user. You ONLY flag clear factual errors or dangerous/incorrect code.
+
+RULES:
+- If Claude's answer has no clear errors, respond with EXACTLY: "[NO_INPUT]"
+- Only flag genuine mistakes, bugs, or security issues
+- Be concise: state what's wrong and what the correct answer is
+- Do NOT add "nice to know" extras`,
+
+        balanced: `You are a peer reviewer for another AI (Claude). Claude has already responded to the user. Your job is to catch errors, add missing context, or flag important nuances that Claude missed.
+
+RULES:
+- If the question is trivial (greetings, simple lookups) respond with EXACTLY: "[NO_INPUT]"
+- For technical/coding/architecture topics — flag errors, add gotchas, mention alternatives Claude missed, or note important caveats
+- Be concise: 2-4 sentences of actionable feedback
+- Do NOT repeat what Claude said — only add what's missing or wrong`,
+
+        active: `You are a peer reviewer for another AI (Claude). Claude has already responded to the user. You ALWAYS provide feedback — corrections, additions, alternative perspectives, or nuances.
+
+RULES:
+- Always provide your review — point out errors, add context, suggest alternatives, note trade-offs
+- If Claude was correct, still add nuance, caveats, or a different angle
+- Be concise: 2-5 sentences of actionable feedback
+- Do NOT just say "Claude is right" — add substance
+- Only respond with "[NO_INPUT]" for pure greetings like "hi" or "hello"`
+      };
+
+      const systemPrompt = interventionPrompts[interventionLevel] || interventionPrompts.balanced;
+
+      const userPrompt = `${historyText}User's question: "${userQuestion}"
+
+Claude's response:
+${claudeResponse}
+
+Your review?`;
+
+      console.log('[SpaceCode] Auto GPT consultation starting...');
+      console.log(`[SpaceCode] User question: "${userQuestion.substring(0, 100)}"`);
+      console.log(`[SpaceCode] Claude response length: ${claudeResponse.length} chars`);
+
+      // Add GPT consultation node to the constellation
+      const consultantModelLabel = this._consultantModel.replace('gpt-', 'GPT-').replace('o1-', 'o1-');
+      this._postMessage({
+        type: 'aiFlowChunk',
+        chunk: {
+          id: 'gpt-consult',
+          source: 'rules',  // Orange — external AI consultation
+          label: consultantModelLabel,
+          tokens: 0,
+          similarity: 0.9,
+          content: `Requesting second opinion from ${consultantModelLabel}...`
+        }
+      });
+
+      // Show consultation in progress
+      this._postMessage({
+        type: 'aiFlowThinking',
+        stage: `${consultantModelLabel} reviewing...`,
+        provider: 'gpt'
+      });
+
+      // Switch to consultant model
+      let originalModel: string | undefined;
+      if ('setModel' in gptProvider && 'getModel' in gptProvider) {
+        originalModel = (gptProvider as any).getModel();
+        (gptProvider as any).setModel(this._consultantModel);
+      }
+
+      console.log(`[SpaceCode] Calling GPT (${this._consultantModel}) via sendMessage (non-streaming)...`);
+
+      // Step 1: GPT reviews Claude's response (non-streaming)
+      const gptResponse = await gptProvider.sendMessage(
+        [{ role: 'user', content: userPrompt }],
+        systemPrompt
+      );
+
+      // Restore original model
+      if (originalModel && 'setModel' in gptProvider) {
+        (gptProvider as any).setModel(originalModel);
+      }
+
+      console.log(`[SpaceCode] GPT response: "${(gptResponse.content || '').substring(0, 200)}"`);
+
+      // Update GPT node in constellation with actual tokens
+      this._postMessage({
+        type: 'aiFlowChunk',
+        chunk: {
+          id: 'gpt-consult',
+          source: 'rules',
+          label: consultantModelLabel,
+          tokens: gptResponse.tokens?.output || Math.ceil((gptResponse.content || '').length / 4),
+          similarity: 0.9,
+          content: (gptResponse.content || '').substring(0, 200) + ((gptResponse.content || '').length > 200 ? '...' : '')
+        }
+      });
+
+      await this.costTracker.recordUsage(
+        'gpt',
+        gptResponse.model,
+        gptResponse.tokens,
+        gptResponse.cost,
+        'consult'
+      );
+
+      const gptFeedback = (gptResponse.content || '').trim();
+
+      // Step 2: If GPT has feedback, feed it back to Claude for a refined answer
+      if (gptFeedback && !gptFeedback.includes('[NO_INPUT]')) {
+        console.log('[SpaceCode] GPT has feedback — sending back to Claude for refinement');
+
+        this._postMessage({
+          type: 'aiFlowThinking',
+          stage: 'Claude refining with GPT feedback...',
+          provider: 'claude'
+        });
+
+        // Get Claude provider for the refinement pass
+        const claudeProvider = this.orchestrator.getClaudeProvider();
+        if (claudeProvider && claudeProvider.isConfigured) {
+          const refineSystemPrompt = `You are Claude. You previously answered a user's question. A peer AI (GPT) has reviewed your answer and provided feedback. Incorporate the feedback into a refined, improved answer.
+
+RULES:
+- If the feedback points out an error, correct it
+- If the feedback adds useful context, incorporate it naturally
+- If the feedback is wrong or unhelpful, ignore it and say so briefly
+- Write a complete refined answer (not just the delta) — the user will see this as your updated response
+- Be concise and direct. Do not mention "GPT" or "peer review" — just give the improved answer
+- If your original answer was fine and the feedback adds nothing, respond with EXACTLY: "[NO_CHANGE]"`;
+
+          const refinePrompt = `User's question: "${userQuestion}"
+
+Your previous answer:
+${claudeResponse}
+
+Peer feedback:
+${gptFeedback}
+
+Write your refined answer:`;
+
+          console.log('[SpaceCode] Calling Claude for refinement pass...');
+
+          // Use Claude's sendMessage (non-streaming) for the refinement
+          const refinedResponse = await claudeProvider.sendMessage(
+            [{ role: 'user', content: refinePrompt }],
+            refineSystemPrompt
+          );
+
+          await this.costTracker.recordUsage(
+            'claude',
+            refinedResponse.model,
+            refinedResponse.tokens,
+            refinedResponse.cost,
+            'consult-refine'
+          );
+
+          const refined = (refinedResponse.content || '').trim();
+          console.log(`[SpaceCode] Claude refined response: "${refined.substring(0, 200)}"`);
+
+          if (refined && !refined.includes('[NO_CHANGE]')) {
+            // Show the refined answer in chat
+            this._postMessage({
+              type: 'gptConsultRefined',
+              response: refined,
+              gptFeedback: gptFeedback,
+              chatId,
+            });
+          } else {
+            // Claude's original answer stands — GPT feedback was not useful
+            console.log('[SpaceCode] Claude says no change needed');
+            this._postMessage({
+              type: 'gptConsultComplete',
+              hadInput: true,
+              chatId,
+            });
+          }
+        } else {
+          // Claude provider unavailable for refinement — show GPT feedback directly as fallback
+          console.warn('[SpaceCode] Claude provider unavailable for refinement, showing GPT feedback directly');
+          this._postMessage({
+            type: 'gptConsultRefined',
+            response: gptFeedback,
+            gptFeedback: gptFeedback,
+            chatId,
+          });
+        }
+      } else {
+        console.log('[SpaceCode] GPT has no additional input — staying silent');
+        this._postMessage({
+          type: 'gptConsultComplete',
+          hadInput: false,
+          chatId,
+        });
+      }
+
+      this._postMessage({ type: 'aiFlowComplete' });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.warn('[SpaceCode] Auto GPT consultation failed:', errMsg);
+      this._postMessage({
+        type: 'gptConsultComplete',
+        hadInput: false,
+        error: errMsg,
+        chatId,
+      });
+      this._postMessage({ type: 'aiFlowComplete', error: true });
+    }
+  }
+
   private async _setModel(model: string): Promise<void> {
     this._currentModel = model;
     logger.log('ui', `Model set to: ${model}`);
@@ -3974,7 +4206,7 @@ Return ONLY the JSON, no markdown or explanation.`;
   }
 
   private async _handleSendMessage(message: any): Promise<void> {
-    const { text, mode, chatMode, includeSelection, injectContext, docTarget, images, history, claudeSessionId, chatId, profile, sectorId } = message;
+    const { text, mode, chatMode, includeSelection, injectContext, docTarget, images, history, claudeSessionId, chatId, profile, sectorId, gptConsult, gptInterventionLevel } = message;
 
     // Normalize provider: ensure we use 'claude' or 'gpt', not tab names
     const provider = (mode === 'claude' || mode === 'gpt') ? mode : 'claude';
@@ -4086,7 +4318,7 @@ Return ONLY the JSON, no markdown or explanation.`;
           chunk: {
             id: `chat-${i}`,
             source: 'chat',
-            label: isUserMsg ? 'You' : 'Assistant',
+            label: isUserMsg ? 'You' : (provider === 'gpt' ? 'GPT' : 'Claude'),
             tokens: Math.ceil(h.content.length / 4),
             similarity: 0.8 - (i * 0.1),
             content: h.content.substring(0, 200) + (h.content.length > 200 ? '...' : '')  // Content preview!
@@ -4131,7 +4363,13 @@ Return ONLY the JSON, no markdown or explanation.`;
       }
 
       // Prepend KB context to the user's message if found
-      const contextWithKb = kbContext ? kbContext + context : context;
+      let contextWithKb = kbContext ? kbContext + context : context;
+
+      // Inject GPT 2nd opinion awareness directly into message content
+      // (system prompt is too weak — Claude CLI wraps it as [System Context:] which gets overridden)
+      if (gptConsult && provider === 'claude') {
+        contextWithKb += `\n\n[NOTE: A "2nd Opinion" mode is active. After your answer, GPT will review it and you may be asked to refine. Give your best answer and at the end briefly tell the user you're requesting a second opinion from GPT and may follow up.]`;
+      }
 
       // Step 5: Signal thinking phase with provider info
       const providerLabel = provider === 'claude' ? 'Claude' : 'GPT';
@@ -4141,46 +4379,43 @@ Return ONLY the JSON, no markdown or explanation.`;
         provider: provider  // Pass provider for visual distinction
       });
 
-      // Handle chat modes: solo, swarm
-      if (chatMode === 'swarm') {
-        // Swarm mode: For now, fall back to single AI
-        const sessionId = provider === 'claude' ? claudeSessionId : undefined;
-        const response = await this.orchestrator.askSingle(provider, contextWithKb, undefined, history || [], sessionId, chatId);
-        await this.costTracker.recordUsage(
-          provider,
-          response.model,
-          response.tokens,
-          response.cost,
-          'chat'
-        );
-        // Signal flow complete
-        this._postMessage({ type: 'aiFlowComplete', tokens: response.tokens.output });
-        this._postMessage({
-          type: 'complete',
-          stats: {},
-          chatId,
-          tokens: response.tokens
-        });
+      // Handle chat modes: solo, swarm (both use same AI call for now)
+      const sessionId = provider === 'claude' ? claudeSessionId : undefined;
+      const response = await this.orchestrator.askSingle(provider, contextWithKb, undefined, history || [], sessionId, chatId);
+      await this.costTracker.recordUsage(
+        provider,
+        response.model,
+        response.tokens,
+        response.cost,
+        'chat'
+      );
+      // Auto GPT consultation: if enabled, ask GPT to weigh in on Claude's response
+      const willConsultGpt = gptConsult && provider === 'claude' && response.content;
 
-      } else {
-        // Solo mode (default): Single AI based on selected provider
-        const sessionId = provider === 'claude' ? claudeSessionId : undefined;
-        const response = await this.orchestrator.askSingle(provider, contextWithKb, undefined, history || [], sessionId, chatId);
-        await this.costTracker.recordUsage(
-          provider,
-          response.model,
-          response.tokens,
-          response.cost,
-          'chat'
-        );
-        // Signal flow complete
+      // Send chat complete (tell UI if GPT consultation will follow so it keeps flow alive)
+      this._postMessage({
+        type: 'complete',
+        stats: {},
+        chatId,
+        tokens: response.tokens,
+        gptConsultPending: !!willConsultGpt
+      });
+      console.log(`[SpaceCode GPT-CONSULT] Gate check: gptConsult=${gptConsult}, provider=${provider}, contentLen=${(response.content || '').length}, interventionLevel=${gptInterventionLevel}`);
+
+      if (!willConsultGpt) {
+        // No GPT consultation — signal flow complete now
         this._postMessage({ type: 'aiFlowComplete', tokens: response.tokens.output });
-        this._postMessage({
-          type: 'complete',
-          stats: {},
-          chatId,
-          tokens: response.tokens
-        });
+      }
+
+      if (gptConsult) {
+        if (willConsultGpt) {
+          console.log('[SpaceCode GPT-CONSULT] Gate PASSED — starting auto consultation');
+          this._postMessage({ type: 'gptConsultStarted', chatId });
+          await this._autoConsultGpt(text, response.content, history || [], chatId, gptInterventionLevel || 'balanced');
+        } else {
+          console.log(`[SpaceCode GPT-CONSULT] Gate FAILED — provider=${provider}, contentLen=${(response.content || '').length}`);
+          this._postMessage({ type: 'gptConsultComplete', hadInput: false, error: `Skipped: provider=${provider}, hasContent=${!!(response.content)}`, chatId });
+        }
       }
     } catch (error) {
       // Signal flow error
@@ -5156,10 +5391,10 @@ Show me what changes will be committed first.`;
             </div>
 
             <!-- Separator between Claude settings and GPT Consultant -->
-            <div class="toolbar-divider">|</div>
+            <div class="toolbar-divider" id="consultantDivider" style="display:none;">|</div>
 
-            <!-- Consultant Model Selector (for GPT Opinion) -->
-            <div class="toolbar-item" id="consultantSelectorContainer" title="Model used for 'Get GPT Opinion'">
+            <!-- Consultant Model Selector (for 2nd Opinion) - hidden until consult toggle is active -->
+            <div class="toolbar-item" id="consultantSelectorContainer" style="display:none;" title="Model used for '2nd Opinion'">
               <button class="toolbar-dropdown-btn consultant-btn" onclick="toggleToolbarDropdown('consultantDropdown')">
                 <span class="toolbar-icon consultant-icon">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -5174,7 +5409,7 @@ Show me what changes will be committed first.`;
               </button>
               <div class="toolbar-dropdown" id="consultantDropdown">
                 <div class="dropdown-header">Consultant Model</div>
-                <div class="dropdown-hint">Used for "Get GPT Opinion"</div>
+                <div class="dropdown-hint">Used for "2nd Opinion"</div>
                 <button class="dropdown-option" onclick="selectConsultant('gpt-4o')">
                   GPT-4o
                   <span class="option-check" id="consultantCheck-gpt-4o">✓</span>
@@ -5190,6 +5425,35 @@ Show me what changes will be committed first.`;
                 <button class="dropdown-option" onclick="selectConsultant('o1')">
                   o1 (Reasoning)
                   <span class="option-check" id="consultantCheck-o1"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- GPT Intervention Level Selector - hidden until consult toggle is active -->
+            <div class="toolbar-item" id="interventionLevelContainer" style="display:none;" title="How often GPT intervenes">
+              <button class="toolbar-dropdown-btn consultant-btn" onclick="toggleToolbarDropdown('interventionDropdown')">
+                <span class="toolbar-icon consultant-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+                  </svg>
+                </span>
+                <span id="selectedInterventionLabel">Balanced</span>
+                <span class="toolbar-arrow">▾</span>
+              </button>
+              <div class="toolbar-dropdown" id="interventionDropdown">
+                <div class="dropdown-header">Intervention Level</div>
+                <div class="dropdown-hint">How often GPT chimes in</div>
+                <button class="dropdown-option" onclick="selectInterventionLevel('silent')">
+                  Silent — only on errors
+                  <span class="option-check" id="interventionCheck-silent"></span>
+                </button>
+                <button class="dropdown-option" onclick="selectInterventionLevel('balanced')">
+                  Balanced — adds value
+                  <span class="option-check" id="interventionCheck-balanced">✓</span>
+                </button>
+                <button class="dropdown-option" onclick="selectInterventionLevel('active')">
+                  Active — always weighs in
+                  <span class="option-check" id="interventionCheck-active"></span>
                 </button>
               </div>
             </div>
@@ -5233,6 +5497,10 @@ Show me what changes will be committed first.`;
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"></circle><circle cx="5" cy="19" r="3"></circle><circle cx="19" cy="19" r="3"></circle><line x1="12" y1="8" x2="5" y2="16"></line><line x1="12" y1="8" x2="19" y2="16"></line></svg>
                     </button>
                   </div>
+                  <!-- GPT Consult toggle -->
+                  <button class="toolbar-icon-btn gpt-consult-toggle" id="gptConsultToggle" onclick="toggleGptConsult()" title="Auto GPT consultation (off)">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"></circle><circle cx="17" cy="7" r="4"></circle><path d="M3 21v-2a4 4 0 0 1 4-4h4"></path><path d="M14 21v-2a4 4 0 0 1 4-4h3"></path></svg>
+                  </button>
                 </div>
                 <textarea
                   id="messageInput"
@@ -5245,41 +5513,12 @@ Show me what changes will be committed first.`;
               </div>
               <button class="send-btn" onclick="sendMessage()" id="sendBtn">Send</button>
               <button class="stop-btn" onclick="stopConversation()" id="stopBtn" style="display: none;">Stop</button>
-              <button class="send-btn secondary-btn" onclick="getGptOpinion()" id="gptOpinionBtn" title="Get GPT's second opinion on Claude's last response">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"></circle><circle cx="17" cy="7" r="4"></circle><path d="M3 21v-2a4 4 0 0 1 4-4h4"></path><path d="M14 21v-2a4 4 0 0 1 4-4h3"></path></svg>
-                2nd Opinion
-              </button>
             </div>
           </div>
         </div><!-- End chat-column -->
 
-        <!-- Fate Web Panel (old - hidden, now using right pane) -->
-        <div class="context-flow-panel" id="contextFlowPanel" style="display: none;">
-          <div class="flow-panel-header">
-            <span class="flow-panel-title">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"></path>
-              </svg>
-              <span id="flowPanelPhase">Synthesis</span>
-            </span>
-            <div class="flow-panel-stats">
-              <span class="flow-stat" id="flowPanelTokens">0 tokens</span>
-              <span class="flow-stat" id="flowPanelChunks">0 threads</span>
-            </div>
-          </div>
-          <div class="flow-panel-canvas" id="contextFlowCanvasOld">
-            <!-- Old - D3 now renders in right pane -->
-          </div>
-          <div class="flow-panel-legend">
-            <div class="legend-item"><span class="legend-dot query"></span>Query</div>
-            <div class="legend-item"><span class="legend-dot chat"></span>Chat</div>
-            <div class="legend-item"><span class="legend-dot kb"></span>KB</div>
-            <div class="legend-item"><span class="legend-dot memory"></span>Memory</div>
-            <div class="legend-item"><span class="legend-dot sector"></span>Rules</div>
-            <div class="legend-item"><span class="legend-dot response"></span>Answer</div>
-          </div>
-        </div>
+        <!-- contextFlowPanel kept as hidden anchor for JS that references it -->
+        <div id="contextFlowPanel" style="display: none;"></div>
 
         <!-- Swarm Sidebar (Swarm mode: worker status) -->
         <div class="swarm-sidebar" id="swarmSidebar" style="display: none;">
@@ -5296,19 +5535,6 @@ Show me what changes will be committed first.`;
         </div>
       </div><!-- End chat-container -->
 
-      <!-- GPT Second Opinion Panel (shown when user clicks "Get GPT Opinion") -->
-      <div class="gpt-opinion-panel" id="gptOpinionPanel" style="display: none;">
-        <div class="gpt-opinion-header">
-          <span class="gpt-opinion-title">GPT Second Opinion</span>
-          <button class="gpt-opinion-close" onclick="closeGptOpinion()" title="Close">×</button>
-        </div>
-        <div class="gpt-opinion-content" id="gptOpinionContent">
-          <div class="gpt-opinion-loading" id="gptOpinionLoading" style="display: none;">
-            <span class="spinner"></span> Getting GPT's opinion...
-          </div>
-          <div class="gpt-opinion-response" id="gptOpinionResponse"></div>
-        </div>
-      </div>
 
     </div><!-- End chat-section -->
 
@@ -5498,6 +5724,10 @@ Show me what changes will be committed first.`;
           <button class="dashboard-subtab" data-subtab="settings" onclick="switchDashboardSubtab('settings')">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             Settings
+          </button>
+          <button class="dashboard-subtab" data-subtab="info" onclick="switchDashboardSubtab('info')">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            Info
           </button>
         </div>
 
@@ -6005,6 +6235,52 @@ Show me what changes will be committed first.`;
           </div>
         </div>
 
+        <!-- Info Panel -->
+        <div class="dashboard-panel" id="dashboardInfoPanel" style="display: none;">
+          <div class="panel-header">
+            <h3>Build Info</h3>
+          </div>
+          <div class="settings-section">
+            <div class="section-header"><h4>SpaceCode App</h4></div>
+            <div class="info-grid" style="display: grid; gap: 12px; padding: 12px;">
+              <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px;">
+                <span style="color: var(--text-secondary);">Extension Source</span>
+                <code style="color: var(--accent-color); font-size: 12px;">~/Projects/spacecode-extension/spacecode-vscode</code>
+              </div>
+              <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px;">
+                <span style="color: var(--text-secondary);">App Build Repo</span>
+                <code style="color: var(--accent-color); font-size: 12px;">~/Projects/vscodium</code>
+              </div>
+              <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px;">
+                <span style="color: var(--text-secondary);">App Binary</span>
+                <code style="color: var(--accent-color); font-size: 12px;">~/Projects/vscodium/VSCode-darwin-arm64/SpaceCode.app</code>
+              </div>
+              <div class="info-row" style="display: flex; justify-content: space-between; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px;">
+                <span style="color: var(--text-secondary);">App CLI</span>
+                <code style="color: var(--accent-color); font-size: 12px;">~/Projects/vscodium/VSCode-darwin-arm64/SpaceCode.app/Contents/Resources/app/bin/spacecode</code>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="section-header"><h4>Rebuild Commands</h4></div>
+            <div style="padding: 12px;">
+              <p style="color: var(--text-secondary); margin-bottom: 8px; font-size: 12px;">To rebuild app with latest extension code:</p>
+              <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 11px; color: var(--text-primary); overflow-x: auto; white-space: pre-wrap;">cd ~/Projects/spacecode-extension/spacecode-vscode
+npx vsce package --allow-missing-repository --allow-star-activation
+
+~/Projects/vscodium/VSCode-darwin-arm64/SpaceCode.app/Contents/Resources/app/bin/spacecode --install-extension spacecode-0.0.1.vsix --force
+
+osascript -e 'quit app "SpaceCode"'; sleep 2; open ~/Projects/vscodium/VSCode-darwin-arm64/SpaceCode.app</pre>
+
+              <p style="color: var(--text-secondary); margin-bottom: 8px; margin-top: 16px; font-size: 12px;">To fully rebuild app shell (branding/icon changes):</p>
+              <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 11px; color: var(--text-primary); overflow-x: auto; white-space: pre-wrap;">cd ~/Projects/vscodium
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+source "$HOME/.cargo/env"
+./dev/build.sh -s</pre>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div><!-- End dashboard-section -->
 
@@ -6013,19 +6289,21 @@ Show me what changes will be committed first.`;
 	  <div class="splitter" id="mainSplitter" title="Drag to resize"></div>
 
 	  <div class="right-pane" id="rightPane" data-panel-mode="flow">
+	    <!-- Panel toggle bar: always visible regardless of panel mode -->
+	    <div class="right-pane-toolbar">
+	      <div class="panel-toggle">
+	        <button id="panelModeStation" class="active" data-tab-scope="station" onclick="setRightPanelMode('station')" title="Station View">Station</button>
+	        <button id="panelModeControl" data-tab-scope="station" onclick="setRightPanelMode('control')" title="Controls">Control</button>
+	        <button id="panelModeFlow" data-tab-scope="chat" onclick="setRightPanelMode('flow')" title="Context Flow">Flow</button>
+	        <button id="panelModeChat" data-tab-scope="chat" onclick="toggleChatSplit()" title="Split chat view">+Chat</button>
+	      </div>
+	    </div>
 	    <div class="ship-panel">
 	      <div class="ship-title">
 	        <span>Station View</span>
 	        <div class="view-mode-toggle" style="display:flex; gap:4px; margin-left:12px;">
 	          <button id="stationViewSchematic" class="active" onclick="stationToggleViewMode('schematic')" title="Schematic View (SVG)">Schematic</button>
 	          <button id="stationViewPhoto" onclick="stationToggleViewMode('photo')" title="Photo View (Legacy)">Photo</button>
-	        </div>
-	        <div class="panel-toggle">
-	          <button id="panelModeStation" class="active" data-tab-scope="station" onclick="setRightPanelMode('station')" title="Station View">Station</button>
-	          <button id="panelModeControl" data-tab-scope="station" onclick="setRightPanelMode('control')" title="Controls">Control</button>
-	          <button id="panelModeFlow" data-tab-scope="chat" onclick="setRightPanelMode('flow')" title="Context Flow">Flow</button>
-	          <button id="panelModeOpinion" data-tab-scope="chat" onclick="setRightPanelMode('opinion')" title="GPT Second Opinion">Opinion</button>
-	          <button id="panelModeChat" data-tab-scope="chat" onclick="setRightPanelMode('chat')" title="Extra Chat">+Chat</button>
 	        </div>
 	      </div>
 	      <div class="ship-canvas" id="shipCanvas">
@@ -6404,17 +6682,29 @@ Show me what changes will be committed first.`;
 
         <!-- Flow Panel (Context Flow Visualization) -->
         <div class="right-panel-content" id="flowPanelContent">
-          <div class="panel-header">
-            <span>Context Flow</span>
+          <div class="flow-panel-header">
+            <span class="flow-panel-title">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"></path>
+              </svg>
+              <span id="flowPanelPhase">Synthesis</span>
+            </span>
+            <div class="flow-panel-stats">
+              <span class="flow-stat" id="flowPanelTokens">0 tokens</span>
+              <span class="flow-stat" id="flowPanelChunks">0 threads</span>
+            </div>
           </div>
-          <div class="flow-visualization" id="contextFlowViz">
-            <div class="flow-stats" id="contextFlowStats">
-              <span class="stat-item">Chunks: <span id="contextFlowChunks">0</span></span>
-              <span class="stat-item">Tokens: <span id="contextFlowTokens">0</span></span>
-            </div>
-            <div class="flow-canvas" id="contextFlowCanvas">
-              <!-- D3 visualization renders here -->
-            </div>
+          <div class="flow-panel-canvas" id="contextFlowCanvas">
+            <!-- D3 visualization renders here -->
+          </div>
+          <div class="flow-panel-legend">
+            <div class="legend-item"><span class="legend-dot query"></span>Query</div>
+            <div class="legend-item"><span class="legend-dot chat"></span>Chat</div>
+            <div class="legend-item"><span class="legend-dot kb"></span>KB</div>
+            <div class="legend-item"><span class="legend-dot memory"></span>Memory</div>
+            <div class="legend-item"><span class="legend-dot sector"></span>Rules</div>
+            <div class="legend-item"><span class="legend-dot response"></span>Answer</div>
           </div>
         </div>
 
@@ -6432,57 +6722,15 @@ Show me what changes will be committed first.`;
           </div>
         </div>
 
-        <!-- Opinion Panel (GPT Second Opinion) -->
-        <div class="right-panel-content" id="opinionPanelContent" style="display:none;">
-          <div class="panel-header">
-            <span>GPT Second Opinion</span>
-            <button class="btn-icon" onclick="refreshGptOpinion()" title="Get fresh opinion">↻</button>
-          </div>
-          <div class="opinion-container">
-            <div class="opinion-context" id="opinionContext">
-              <div class="opinion-section">
-                <label>Your Question:</label>
-                <div class="opinion-text" id="opinionUserQuestion">-</div>
-              </div>
-              <div class="opinion-section">
-                <label>Claude's Response:</label>
-                <div class="opinion-text opinion-claude" id="opinionClaudeResponse">-</div>
-              </div>
-            </div>
-            <div class="opinion-divider"></div>
-            <div class="opinion-response">
-              <label>GPT's Take:</label>
-              <div class="opinion-loading" id="opinionLoading" style="display:none;">
-                <div class="spinner"></div>
-                <span>Getting GPT's opinion...</span>
-              </div>
-              <div class="opinion-text opinion-gpt" id="opinionGptResponse">
-                Click "GPT Opinion" button after Claude responds to get a second opinion.
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <!-- Extra Chat Panel -->
+        <!-- Chat Split Panel (placeholder, content cloned from main chat by JS) -->
         <div class="right-panel-content" id="chatPanelContent" style="display:none;">
           <div class="panel-header">
-            <span>Side Chat</span>
-            <div class="chat-tabs-mini">
-              <button class="chat-tab-mini active" data-chat="1" onclick="switchSideChat(1)">Chat 1</button>
-              <button class="chat-tab-mini" data-chat="2" onclick="switchSideChat(2)">Chat 2</button>
-            </div>
+            <span>Chat Split</span>
+            <button class="btn-icon" onclick="toggleChatSplit()" title="Close split">×</button>
           </div>
-          <div class="side-chat-container">
-            <div class="side-chat-messages" id="sideChatMessages1">
-              <div class="empty-state">Start a side conversation. Ask anything unrelated to main chat.</div>
-            </div>
-            <div class="side-chat-messages" id="sideChatMessages2" style="display:none;">
-              <div class="empty-state">Start a side conversation. Ask anything unrelated to main chat.</div>
-            </div>
-            <div class="side-chat-input">
-              <textarea id="sideChatInput" placeholder="Ask something..." rows="2"></textarea>
-              <button class="send-btn-mini" onclick="sendSideChat()">Send</button>
-            </div>
+          <div class="chat-split-mirror" id="chatSplitMirror">
+            <div class="empty-state">Chat split active. Messages appear here too.</div>
           </div>
         </div>
 

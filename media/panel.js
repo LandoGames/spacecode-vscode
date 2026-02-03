@@ -20,7 +20,7 @@ const TABS = {
 
 /**
  * Chat Mode Constants - Solo/Swarm modes within Chat tab
- * Note: "Get GPT Opinion" is a button in Solo mode, not a separate mode
+ * Note: "2nd Opinion" sends the chat to GPT for review, response shows inline
  */
 const CHAT_MODES = {
   SOLO: 'solo',        // Single AI (Claude or GPT based on model selection)
@@ -30,7 +30,7 @@ const CHAT_MODES = {
 // Phase 1.1: Per-tab panel mode configuration
 // Which panel modes are allowed for each main tab
 const TAB_PANEL_MODES = {
-  [TABS.CHAT]:    ['flow', 'opinion', 'chat'],
+  [TABS.CHAT]:    ['flow', 'chat'],
   [TABS.STATION]: ['station', 'control'],
 };
 // Default panel mode when switching to a tab
@@ -520,7 +520,6 @@ let currentPlanData = uiState.currentPlan;
         station: document.getElementById('panelModeStation'),
         control: document.getElementById('panelModeControl'),
         flow: document.getElementById('panelModeFlow'),
-        opinion: document.getElementById('panelModeOpinion'),
         chat: document.getElementById('panelModeChat')
       };
 
@@ -2932,14 +2931,15 @@ function stationToggleViewMode(mode) {
     const allowedTabs = new Set(['info', 'coordinator', 'ops', 'unity']);
     setTimeout(() => switchControlTab(allowedTabs.has(savedTab) ? savedTab : 'info'), 0);
 
-    // Phase 1.1: Restore right-panel mode per-tab from localStorage
+    // Phase 1.1: On fresh load, always start with the default mode for the active tab.
+    // Per-tab memory only applies when switching tabs within a session.
     setTimeout(() => {
-      if (currentTab === TABS.CHAT || currentTab === TABS.STATION) {
-        restoreRightPanelModeForTab(currentTab);
-      } else {
-        const savedPanelMode = localStorage.getItem('spacecode.panelMode') || 'station';
-        setRightPanelMode(savedPanelMode);
-      }
+      // Clear stale per-tab keys so we always start fresh
+      localStorage.removeItem('spacecode.panelMode.chat');
+      localStorage.removeItem('spacecode.panelMode.station');
+
+      const defaultMode = TAB_DEFAULT_MODE[currentTab] || 'station';
+      setRightPanelMode(defaultMode);
       updatePanelToggleButtons();
     }, 0);
 
@@ -3036,6 +3036,7 @@ function stationToggleViewMode(mode) {
       }
     };
     let currentChatId = initialChatId;
+    let _gptFlowPending = false; // true while waiting for GPT consultation to finish
 
     function newChat() {
       // Check if max tabs reached
@@ -3386,7 +3387,7 @@ function stationToggleViewMode(mode) {
       const activeBtn = document.querySelector(`.dashboard-subtab[data-subtab="${subtabName}"]`);
       if (activeBtn) activeBtn.classList.add('active');
 
-      const panels = ['dashboardDocsPanel', 'dashboardTicketsPanel', 'dashboardDbPanel', 'dashboardMcpPanel', 'dashboardLogsPanel', 'dashboardSettingsPanel'];
+      const panels = ['dashboardDocsPanel', 'dashboardTicketsPanel', 'dashboardDbPanel', 'dashboardMcpPanel', 'dashboardLogsPanel', 'dashboardSettingsPanel', 'dashboardInfoPanel'];
       panels.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -3416,6 +3417,9 @@ function stationToggleViewMode(mode) {
         case 'settings':
           document.getElementById('dashboardSettingsPanel')?.style && (document.getElementById('dashboardSettingsPanel').style.display = 'block');
           loadSettings();
+          break;
+        case 'info':
+          document.getElementById('dashboardInfoPanel')?.style && (document.getElementById('dashboardInfoPanel').style.display = 'block');
           break;
       }
     };
@@ -3810,13 +3814,11 @@ function stationToggleViewMode(mode) {
       const chatContainer = document.getElementById('chatContainer');
       const primaryPanel = document.getElementById('chatPanelPrimary');
       const swarmSidebar = document.getElementById('swarmSidebar');
-      const gptOpinionPanel = document.getElementById('gptOpinionPanel');
       const rightPane = document.getElementById('rightPane');
       const splitter = document.getElementById('mainSplitter');
 
       // Reset all panels
       if (swarmSidebar) swarmSidebar.style.display = 'none';
-      if (gptOpinionPanel) gptOpinionPanel.style.display = 'none';
       if (chatContainer) chatContainer.classList.remove('swarm-mode');
 
       // Get toggle icons container
@@ -3876,29 +3878,17 @@ function stationToggleViewMode(mode) {
     }
 
     /**
-     * Get GPT's second opinion on Claude's last response
-     * Switches to Opinion panel mode and requests GPT to review
+     * Get GPT's second opinion on Claude's last response.
+     * Does NOT switch panels - stays on Flow. Response appears inline in main chat.
      */
     window.getGptOpinion = function() {
-      // Switch right panel to opinion mode
-      setRightPanelMode('opinion');
-
-      const loading = document.getElementById('opinionLoading');
-      const gptResponse = document.getElementById('opinionGptResponse');
-      const userQuestionEl = document.getElementById('opinionUserQuestion');
-      const claudeResponseEl = document.getElementById('opinionClaudeResponse');
-
-      // Show loading state
-      if (loading) loading.style.display = 'flex';
-      if (gptResponse) gptResponse.innerHTML = '';
-
       // Get the last Claude response from chat
       const messages = document.querySelectorAll('#chatMessages .message.claude, #chatMessages .message.assistant');
       const lastClaudeMessage = messages[messages.length - 1];
 
       if (!lastClaudeMessage) {
-        if (loading) loading.style.display = 'none';
-        if (gptResponse) gptResponse.innerHTML = '<p class="no-response">No Claude response to review. Send a message first.</p>';
+        // Show inline notice
+        appendSystemMessage('No Claude response to review. Send a message first.');
         return;
       }
 
@@ -3941,9 +3931,8 @@ function stationToggleViewMode(mode) {
       }
       prunedHistory.reverse();
 
-      // Update context display
-      if (userQuestionEl) userQuestionEl.textContent = userQuestion || '-';
-      if (claudeResponseEl) claudeResponseEl.textContent = claudeResponse.substring(0, 200) + (claudeResponse.length > 200 ? '...' : '');
+      // Show "requesting..." inline in chat
+      appendSystemMessage('Requesting GPT second opinion...');
 
       // Request GPT opinion
       vscode.postMessage({
@@ -3955,19 +3944,79 @@ function stationToggleViewMode(mode) {
     };
 
     /**
-     * Refresh GPT opinion (request a new opinion on the same content)
+     * Append a system-style message to the main chat
      */
-    window.refreshGptOpinion = function() {
-      window.getGptOpinion();
+    function appendSystemMessage(text) {
+      const container = document.getElementById('chatMessages');
+      if (!container) return;
+      const div = document.createElement('div');
+      div.className = 'message system';
+      div.innerHTML = '<div class="message-content">' + text + '</div>';
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    /**
+     * GPT Auto-Consultation toggle.
+     * When enabled, Claude automatically consults GPT on non-trivial responses.
+     */
+    let gptConsultEnabled = false;
+    let gptInterventionLevel = 'balanced'; // 'silent' | 'balanced' | 'active'
+    window.toggleGptConsult = function() {
+      gptConsultEnabled = !gptConsultEnabled;
+      const btn = document.getElementById('gptConsultToggle');
+      if (btn) {
+        btn.classList.toggle('active', gptConsultEnabled);
+        btn.title = gptConsultEnabled ? 'Auto GPT consultation (on)' : 'Auto GPT consultation (off)';
+      }
+      // Show/hide the consultant model selector and intervention level in the top toolbar
+      const selector = document.getElementById('consultantSelectorContainer');
+      const divider = document.getElementById('consultantDivider');
+      const intervention = document.getElementById('interventionLevelContainer');
+      if (selector) selector.style.display = gptConsultEnabled ? '' : 'none';
+      if (divider) divider.style.display = gptConsultEnabled ? '' : 'none';
+      if (intervention) intervention.style.display = gptConsultEnabled ? '' : 'none';
+    };
+
+    window.selectInterventionLevel = function(level) {
+      gptInterventionLevel = level;
+      const labels = { silent: 'Silent', balanced: 'Balanced', active: 'Active' };
+      const labelEl = document.getElementById('selectedInterventionLabel');
+      if (labelEl) labelEl.textContent = labels[level] || level;
+      // Update checkmarks
+      ['silent', 'balanced', 'active'].forEach(l => {
+        const check = document.getElementById('interventionCheck-' + l);
+        if (check) check.textContent = l === level ? '✓' : '';
+      });
+      closeAllDropdowns();
     };
 
     /**
-     * Close the GPT opinion panel (switch back based on active tab)
+     * Toggle chat split: hides flow, shows chat area in split mode.
+     * Press once = split (flow hidden, right pane shows chat mirror).
+     * Press again = back to flow.
      */
-    window.closeGptOpinion = function() {
-      // Phase 1.1: Use TAB_DEFAULT_MODE for consistent fallback
-      setRightPanelMode(TAB_DEFAULT_MODE[currentTab] || 'station');
+    let chatSplitActive = false;
+    window.toggleChatSplit = function() {
+      chatSplitActive = !chatSplitActive;
+      if (chatSplitActive) {
+        setRightPanelMode('chat');
+        syncChatSplitMirror();
+      } else {
+        setRightPanelMode('flow');
+      }
     };
+
+    /**
+     * Sync the chat split mirror with the main chat content
+     */
+    function syncChatSplitMirror() {
+      const source = document.getElementById('chatMessages');
+      const mirror = document.getElementById('chatSplitMirror');
+      if (!source || !mirror) return;
+      mirror.innerHTML = source.innerHTML;
+      mirror.scrollTop = mirror.scrollHeight;
+    }
 
     /**
      * Show the GPT Opinion button after Claude responds
@@ -4414,7 +4463,9 @@ function stationToggleViewMode(mode) {
         images: attachedImages.slice(), // Copy of attached images
         history: historyToSend, // History WITHOUT current message (askSingle adds it)
         claudeSessionId: getClaudeSessionId(), // Session ID for Claude persistence
-        chatId: sendChatId // Track which chat this message belongs to
+        chatId: sendChatId, // Track which chat this message belongs to
+        gptConsult: gptConsultEnabled, // Auto GPT consultation flag
+        gptInterventionLevel: gptInterventionLevel // How aggressively GPT intervenes
       });
 
       input.value = '';
@@ -6011,29 +6062,130 @@ function stationToggleViewMode(mode) {
           setGenerating(false, msg.chatId);
           // Update token bar for the chat that completed
           updateTokenBar(msg.chatId || currentChatId);
-          // Safety: stop flow animations if aiFlowComplete didn't fire
-          stopThreadAnimation();
-          stopParticleSpawning();
-          stopParticleFlow();
-          // Show GPT Opinion button after Claude responds (Solo mode only)
-          if (currentChatMode === CHAT_MODES.SOLO) {
-            showGptOpinionButton();
+          // If GPT consultation is about to start, set flag to keep flow alive
+          if (msg.gptConsultPending) {
+            _gptFlowPending = true;
+          } else {
+            // Safety: stop flow animations if aiFlowComplete didn't fire
+            stopThreadAnimation();
+            stopParticleSpawning();
+            stopParticleFlow();
+          }
+          // Sync chat split mirror if active
+          if (chatSplitActive) syncChatSplitMirror();
+          break;
+
+        case 'gptConsultStarted':
+          // Show that GPT consultation is in progress
+          {
+            const chatContainer = document.getElementById('chatMessages');
+            if (chatContainer) {
+              // Remove any previous "consulting" indicator
+              const prev = chatContainer.querySelector('.gpt-consult-pending');
+              if (prev) prev.remove();
+              const div = document.createElement('div');
+              div.className = 'message gpt-consult-pending';
+              div.innerHTML = '<span class="consult-check" style="opacity:0.7;">⟳ Consulting GPT...</span>';
+              chatContainer.appendChild(div);
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
           }
           break;
 
         case 'gptOpinionResponse':
-          // Display GPT's second opinion in the Opinion panel (right pane)
-          const opinionLoadingEl = document.getElementById('opinionLoading');
-          const opinionGptEl = document.getElementById('opinionGptResponse');
-          if (opinionLoadingEl) opinionLoadingEl.style.display = 'none';
-          if (opinionGptEl) {
-            opinionGptEl.innerHTML = formatMessageContent(msg.response);
+          // Legacy: direct GPT opinion (kept for manual 2nd opinion button)
+          {
+            const chatContainer = document.getElementById('chatMessages');
+            if (chatContainer) {
+              const pending = chatContainer.querySelector('.gpt-consult-pending');
+              if (pending) pending.remove();
+              const div = document.createElement('div');
+              div.className = 'message gpt';
+              div.innerHTML = '<div class="message-avatar">GPT</div><div class="message-content">' + (typeof marked !== 'undefined' ? marked.parse(msg.response) : escapeHtml(msg.response)) + '</div>';
+              chatContainer.appendChild(div);
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+              if (chatSplitActive) syncChatSplitMirror();
+            }
+          }
+          break;
+
+        case 'gptConsultRefined':
+          // Claude's refined answer after GPT peer review
+          {
+            // Clear GPT flow pending flag and finalize flow
+            _gptFlowPending = false;
+            setFlowThinking(false);
+            stopThreadAnimation();
+            stopParticleSpawning();
+            stopParticleFlow();
+            const refinedPhaseEl = document.getElementById('flowPanelPhase');
+            if (refinedPhaseEl) refinedPhaseEl.textContent = 'Complete';
+
+            const chatContainer = document.getElementById('chatMessages');
+            if (chatContainer) {
+              // Remove pending indicator
+              const pending = chatContainer.querySelector('.gpt-consult-pending');
+              if (pending) pending.remove();
+              const div = document.createElement('div');
+              div.className = 'message claude refined-message';
+              const renderedContent = typeof marked !== 'undefined' ? marked.parse(msg.response) : escapeHtml(msg.response);
+              const gptFeedbackHtml = msg.gptFeedback
+                ? (typeof marked !== 'undefined' ? marked.parse(msg.gptFeedback) : escapeHtml(msg.gptFeedback))
+                : '';
+              div.innerHTML =
+                '<div class="message-avatar refined-avatar">C</div>' +
+                '<div class="message-content">' +
+                  '<div class="refined-badge">Refined with 2nd opinion</div>' +
+                  renderedContent +
+                  '<div class="refined-intro">The original answer was refined based on GPT\'s analysis.</div>' +
+                  (gptFeedbackHtml ? (
+                    '<details class="gpt-feedback-details">' +
+                      '<summary class="gpt-feedback-summary">GPT feedback</summary>' +
+                      '<div class="gpt-feedback-content">' + gptFeedbackHtml + '</div>' +
+                    '</details>'
+                  ) : '') +
+                '</div>';
+              chatContainer.appendChild(div);
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+              if (chatSplitActive) syncChatSplitMirror();
+            }
+          }
+          break;
+
+        case 'gptConsultComplete':
+          // Subtle indicator that GPT was consulted
+          {
+            // Clear GPT flow pending flag and finalize flow
+            _gptFlowPending = false;
+            setFlowThinking(false);
+            stopThreadAnimation();
+            stopParticleSpawning();
+            stopParticleFlow();
+            const completePhaseEl = document.getElementById('flowPanelPhase');
+            if (completePhaseEl) completePhaseEl.textContent = 'Complete';
+
+            const chatContainer = document.getElementById('chatMessages');
+            if (chatContainer) {
+              // Remove pending indicator
+              const pending = chatContainer.querySelector('.gpt-consult-pending');
+              if (pending) pending.remove();
+              const div = document.createElement('div');
+              div.className = 'message gpt-consult-silent';
+              if (msg.error) {
+                div.innerHTML = '<span class="consult-check consult-error">GPT consult: ' + msg.error + '</span>';
+              } else if (msg.hadInput) {
+                div.innerHTML = '<span class="consult-check">GPT reviewed — original answer stands</span>';
+              } else {
+                div.innerHTML = '<span class="consult-check">GPT reviewed — no additional input</span>';
+              }
+              chatContainer.appendChild(div);
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
           }
           break;
 
         case 'sideChatResponse':
-          // Display response in the side chat panel
-          handleSideChatResponse(msg.chatIndex, msg.response);
+          // Legacy side chat - no longer used
           break;
 
         case 'summary':
@@ -6457,7 +6609,12 @@ function stationToggleViewMode(mode) {
 
         case 'aiFlowComplete':
           // AI done - stop all Fate Web animations
-          console.log('[SpaceCode] aiFlowComplete, tokens:', msg.tokens);
+          console.log('[SpaceCode] aiFlowComplete, tokens:', msg.tokens, 'gptFlowPending:', _gptFlowPending);
+          // If GPT consultation is in progress, ignore early aiFlowComplete
+          if (_gptFlowPending) {
+            console.log('[SpaceCode] aiFlowComplete ignored — GPT consultation still pending');
+            break;
+          }
           setFlowThinking(false);
           stopThreadAnimation();  // Stop thread dash animation
           stopParticleSpawning();
@@ -7475,6 +7632,7 @@ function stationToggleViewMode(mode) {
       initContextFlowVisualization();
     }
 
+    let _flowInitRetries = 0;
     function initContextFlowVisualization(skipWaiting = false) {
       const canvas = document.getElementById('contextFlowCanvas');
       if (!canvas || typeof d3 === 'undefined') {
@@ -7485,9 +7643,19 @@ function stationToggleViewMode(mode) {
       // Clear existing
       d3.select(canvas).selectAll('*').remove();
 
-      // Get dimensions
-      aiFlowState.width = canvas.clientWidth || 300;
-      aiFlowState.height = canvas.clientHeight || 200;
+      // Get dimensions - retry if layout not ready yet
+      let w = canvas.clientWidth;
+      let h = canvas.clientHeight;
+      if ((w === 0 || h === 0) && _flowInitRetries < 10) {
+        _flowInitRetries++;
+        console.log('[Fate Web] Canvas has 0 dimensions, retrying...', _flowInitRetries);
+        setTimeout(() => initContextFlowVisualization(skipWaiting), 200);
+        return;
+      }
+      _flowInitRetries = 0;
+
+      aiFlowState.width = w || 300;
+      aiFlowState.height = h || 200;
 
       // Create SVG with D3
       const svg = d3.select(canvas)

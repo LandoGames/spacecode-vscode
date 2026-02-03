@@ -107,6 +107,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Auto-open main panel on startup (for branded app experience)
+  const isSpaceCodeApp = vscode.env.appName === 'SpaceCode';
+  if (isSpaceCodeApp) {
+    vscode.commands.executeCommand('spacecode.openPanel');
+  }
+
   logger.info('general', 'SpaceCode extension activated!');
 }
 

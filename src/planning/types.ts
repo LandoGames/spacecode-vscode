@@ -167,11 +167,165 @@ export interface StoredPlan {
 }
 
 /**
+ * Plan history action types
+ */
+export type PlanHistoryAction =
+  | 'created'
+  | 'approved'
+  | 'executed'
+  | 'verified'
+  | 'failed'
+  | 'cancelled'
+  | 'issue_created'
+  | 'pr_created'
+  | 'compared';
+
+/**
  * Plan history entry
  */
 export interface PlanHistoryEntry {
   planId: string;
-  action: 'created' | 'approved' | 'executed' | 'verified' | 'failed' | 'cancelled';
+  action: PlanHistoryAction;
   timestamp: number;
-  details?: string;
+  details?: string | Record<string, unknown>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Planning Mode Types (Workstream A.1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Planning phases (4-phase flow: Study → Connect → Plan → Review)
+ */
+export type PlanningPhase = 'study' | 'connect' | 'plan' | 'review';
+
+/**
+ * Planning phase configuration
+ */
+export interface PlanningPhaseConfig {
+  id: PlanningPhase;
+  name: string;
+  leadPersona: 'nova' | 'gears' | 'index';
+  supportPersona?: 'nova' | 'gears' | 'index';
+  description: string;
+  checklist: string[];
+  tools: string[];
+}
+
+/**
+ * Planning phase state during a session
+ */
+export interface PlanningPhaseState {
+  phase: PlanningPhase;
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+  startedAt?: number;
+  completedAt?: number;
+  checklistCompleted: boolean[];
+  notes: string[];
+  outputs: {
+    requirements?: string[];
+    touchPoints?: string[];
+    affectedFiles?: string[];
+    risks?: Array<{ level: 'low' | 'medium' | 'high'; description: string }>;
+  };
+}
+
+/**
+ * Planning session - tracks a complete planning workflow
+ */
+export interface PlanningSession {
+  id: string;
+  feature: string;
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+  status: 'active' | 'completed' | 'cancelled';
+
+  /** Current phase */
+  currentPhase: PlanningPhase;
+
+  /** State for each phase */
+  phases: {
+    study: PlanningPhaseState;
+    connect: PlanningPhaseState;
+    plan: PlanningPhaseState;
+    review: PlanningPhaseState;
+  };
+
+  /** Growing list of affected files discovered during analysis */
+  affectedFiles: Array<{
+    path: string;
+    action: 'create' | 'modify' | 'delete';
+    discoveredInPhase: PlanningPhase;
+  }>;
+
+  /** Risk assessment summary */
+  riskAssessment: {
+    overall: 'low' | 'medium' | 'high' | 'critical';
+    items: Array<{
+      level: 'low' | 'medium' | 'high' | 'critical';
+      description: string;
+      mitigation?: string;
+    }>;
+  };
+
+  /** Generated implementation plan (after Plan phase) */
+  implementationPlan?: Plan;
+
+  /** Context from GDD check */
+  gddContext?: string;
+
+  /** Context from SA check */
+  saContext?: string;
+}
+
+/**
+ * Planning gate - approval checkpoint
+ */
+export interface PlanningGate {
+  id: string;
+  phase: PlanningPhase;
+  name: string;
+  criteria: string;
+  owner: 'nova' | 'gears' | 'index' | 'user';
+  required: boolean;
+  status: 'pending' | 'passed' | 'failed' | 'waived';
+  checkedAt?: number;
+  checkedBy?: string;
+  notes?: string;
+}
+
+/**
+ * Planning mode state for the UI
+ */
+export interface PlanningModeState {
+  isActive: boolean;
+  session?: PlanningSession;
+  gates: PlanningGate[];
+  canSkipToPhase: PlanningPhase | null;
+  showPanel: boolean;
+}
+
+/**
+ * Reuse candidate - found during "Reuse Before Create" check
+ */
+export interface ReuseCandidate {
+  file: string;
+  symbol: string;
+  type: 'function' | 'class' | 'interface' | 'constant';
+  description: string;
+  similarity: number;
+  canExtend: boolean;
+  canParameterize: boolean;
+  reason?: string;
+}
+
+/**
+ * Reuse check result
+ */
+export interface ReuseCheckResult {
+  query: string;
+  candidates: ReuseCandidate[];
+  recommendation: 'reuse' | 'extend' | 'create';
+  reasoning: string;
 }

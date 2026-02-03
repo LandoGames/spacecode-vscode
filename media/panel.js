@@ -27,6 +27,18 @@ const CHAT_MODES = {
   SWARM: 'swarm',      // Multi-worker parallel execution
 };
 
+// Phase 1.1: Per-tab panel mode configuration
+// Which panel modes are allowed for each main tab
+const TAB_PANEL_MODES = {
+  [TABS.CHAT]:    ['flow', 'opinion', 'chat'],
+  [TABS.STATION]: ['station', 'control'],
+};
+// Default panel mode when switching to a tab
+const TAB_DEFAULT_MODE = {
+  [TABS.CHAT]:    'flow',
+  [TABS.STATION]: 'station',
+};
+
 // Legacy alias for backward compatibility
 const MODES = TABS;
 
@@ -516,9 +528,47 @@ let currentPlanData = uiState.currentPlan;
         if (btn) btn.classList.toggle('active', mode === btnMode);
       }
 
+      // Phase 1.1: Store per-tab panel mode
+      if (currentTab) {
+        localStorage.setItem(`spacecode.panelMode.${currentTab}`, mode);
+      }
       localStorage.setItem('spacecode.panelMode', mode);
+
+      // Phase 1.1: Show/hide toggle buttons based on active tab
+      updatePanelToggleButtons();
     }
     window.setRightPanelMode = setRightPanelMode;
+
+    /**
+     * Phase 1.1: Show/hide panel toggle buttons based on data-tab-scope.
+     * Buttons with data-tab-scope="station" only visible on Station tab.
+     * Buttons with data-tab-scope="chat" only visible on Chat tab.
+     * Buttons without data-tab-scope are always visible.
+     */
+    function updatePanelToggleButtons() {
+      document.querySelectorAll('.panel-toggle button[data-tab-scope]').forEach(btn => {
+        const scope = btn.getAttribute('data-tab-scope');
+        if (scope === 'station') {
+          btn.style.display = (currentTab === TABS.STATION) ? '' : 'none';
+        } else if (scope === 'chat') {
+          btn.style.display = (currentTab === TABS.CHAT) ? '' : 'none';
+        }
+      });
+    }
+
+    /**
+     * Phase 1.1: Restore the panel mode for a given tab from localStorage,
+     * falling back to TAB_DEFAULT_MODE.
+     */
+    function restoreRightPanelModeForTab(tab) {
+      const saved = localStorage.getItem(`spacecode.panelMode.${tab}`);
+      const allowed = TAB_PANEL_MODES[tab];
+      if (saved && allowed && allowed.includes(saved)) {
+        setRightPanelMode(saved);
+      } else {
+        setRightPanelMode(TAB_DEFAULT_MODE[tab] || 'station');
+      }
+    }
 
     // Side chat state
     let activeSideChatIndex = 0;
@@ -2882,16 +2932,15 @@ function stationToggleViewMode(mode) {
     const allowedTabs = new Set(['info', 'coordinator', 'ops', 'unity']);
     setTimeout(() => switchControlTab(allowedTabs.has(savedTab) ? savedTab : 'info'), 0);
 
-    // Restore right-panel mode (tab-aware)
-    const savedPanelMode = localStorage.getItem('spacecode.panelMode') || 'station';
+    // Phase 1.1: Restore right-panel mode per-tab from localStorage
     setTimeout(() => {
-      if (currentTab === TABS.CHAT) {
-        setRightPanelMode('flow');
-      } else if (currentTab === TABS.STATION) {
-        setRightPanelMode('station');
+      if (currentTab === TABS.CHAT || currentTab === TABS.STATION) {
+        restoreRightPanelModeForTab(currentTab);
       } else {
+        const savedPanelMode = localStorage.getItem('spacecode.panelMode') || 'station';
         setRightPanelMode(savedPanelMode);
       }
+      updatePanelToggleButtons();
     }, 0);
 
 	    // Draggable splitter between chat and station panes.
@@ -3264,8 +3313,9 @@ function stationToggleViewMode(mode) {
           if (rightPane) {
             rightPane.style.display = 'flex'; // Show right pane
             rightPane.style.flex = '1 1 50%'; // 50% width
-            setRightPanelMode('flow'); // Show flow panel in chat tab
           }
+          // Phase 1.1: Restore last-used panel mode for Chat tab
+          restoreRightPanelModeForTab(TABS.CHAT);
           if (mainSplitter) mainSplitter.style.display = 'none';
           if (contextFlowPanel) contextFlowPanel.style.display = 'none';
           updateChatModeSwitcherVisibility();
@@ -3278,7 +3328,8 @@ function stationToggleViewMode(mode) {
           if (leftPane) leftPane.style.flex = '0 0 350px'; // Narrower left pane
           if (chatSection) chatSection.style.display = 'flex';
           if (contextFlowPanel) contextFlowPanel.style.display = 'none'; // Hide Context Flow
-          setRightPanelMode('station'); // Ensure Station view is visible
+          // Phase 1.1: Restore last-used panel mode for Station tab
+          restoreRightPanelModeForTab(TABS.STATION);
           // Hide chat mode switcher on Station tab (not needed)
           const switcher = document.getElementById('chatModeSwitcher');
           if (switcher) switcher.style.display = 'none';
@@ -3779,8 +3830,9 @@ function stationToggleViewMode(mode) {
           if (rightPane) {
             rightPane.style.display = 'flex';
             rightPane.style.flex = '1 1 50%';
-            setRightPanelMode('flow');
           }
+          // Phase 1.1: Restore last-used Chat panel mode instead of forcing 'flow'
+          restoreRightPanelModeForTab(TABS.CHAT);
           if (splitter) splitter.style.display = 'none';
           if (contextFlowPanel) contextFlowPanel.style.display = 'none';
           if (chatModeToggles) chatModeToggles.style.display = 'none';
@@ -3794,8 +3846,9 @@ function stationToggleViewMode(mode) {
           if (rightPane) {
             rightPane.style.display = 'flex';
             rightPane.style.flex = '1 1 50%';
-            rightPane.setAttribute('data-panel-mode', 'swarm'); // Show swarm panel
           }
+          // Phase 1.1: Use setRightPanelMode for consistent state tracking
+          setRightPanelMode('swarm');
           if (splitter) splitter.style.display = 'none';
           if (contextFlowPanel) contextFlowPanel.style.display = 'none';
           if (chatModeToggles) chatModeToggles.style.display = 'none';
@@ -3912,7 +3965,8 @@ function stationToggleViewMode(mode) {
      * Close the GPT opinion panel (switch back based on active tab)
      */
     window.closeGptOpinion = function() {
-      setRightPanelMode(currentTab === TABS.CHAT ? 'flow' : 'station');
+      // Phase 1.1: Use TAB_DEFAULT_MODE for consistent fallback
+      setRightPanelMode(TAB_DEFAULT_MODE[currentTab] || 'station');
     };
 
     /**

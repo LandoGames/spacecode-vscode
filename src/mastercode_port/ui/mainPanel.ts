@@ -6021,11 +6021,11 @@ Show me what changes will be committed first.`;
 	          <button id="stationViewPhoto" onclick="stationToggleViewMode('photo')" title="Photo View (Legacy)">Photo</button>
 	        </div>
 	        <div class="panel-toggle">
-	          <button id="panelModeStation" class="active" onclick="setRightPanelMode('station')" title="Station View">Station</button>
-	          <button id="panelModeControl" onclick="setRightPanelMode('control')" title="Controls">Control</button>
-	          <button id="panelModeFlow" onclick="setRightPanelMode('flow')" title="Context Flow">Flow</button>
-	          <button id="panelModeOpinion" onclick="setRightPanelMode('opinion')" title="GPT Second Opinion">Opinion</button>
-	          <button id="panelModeChat" onclick="setRightPanelMode('chat')" title="Extra Chat">+Chat</button>
+	          <button id="panelModeStation" class="active" data-tab-scope="station" onclick="setRightPanelMode('station')" title="Station View">Station</button>
+	          <button id="panelModeControl" data-tab-scope="station" onclick="setRightPanelMode('control')" title="Controls">Control</button>
+	          <button id="panelModeFlow" data-tab-scope="chat" onclick="setRightPanelMode('flow')" title="Context Flow">Flow</button>
+	          <button id="panelModeOpinion" data-tab-scope="chat" onclick="setRightPanelMode('opinion')" title="GPT Second Opinion">Opinion</button>
+	          <button id="panelModeChat" data-tab-scope="chat" onclick="setRightPanelMode('chat')" title="Extra Chat">+Chat</button>
 	        </div>
 	      </div>
 	      <div class="ship-canvas" id="shipCanvas">

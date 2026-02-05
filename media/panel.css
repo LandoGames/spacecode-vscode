@@ -592,6 +592,92 @@ body {
   box-sizing: border-box;
 }
 
+/* Chat Context Bar (V3) */
+.chat-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  min-height: 28px;
+  gap: 8px;
+}
+.context-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+.context-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.persona-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+.persona-selector:hover {
+  background: var(--bg-hover);
+}
+.persona-selector .dropdown-caret {
+  opacity: 0.6;
+}
+.persona-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 180px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.persona-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.persona-menu-item:hover {
+  background: var(--bg-hover);
+}
+.context-bar-skills {
+  display: flex;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.context-bar-clear {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.context-bar-clear:hover {
+  color: var(--error-text);
+}
+
 /* Force bottom elements to stay within parent width */
 .chat-section > .status-bar,
 .chat-section > .token-bar-wrapper,
@@ -863,6 +949,59 @@ body {
 #sectorDetailViolationsList div { font-size: 10px; }
 #sectorMapTierBanner { transition: opacity 0.2s ease; }
 
+/* Sector Configuration UI (CF-8) */
+.sector-config-row {
+  padding: 6px;
+  margin-bottom: 4px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s ease;
+}
+.sector-config-row:hover {
+  border-color: var(--accent-color, #6366f1);
+}
+.sector-config-row input[type="text"] {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 3px 6px;
+  font-size: 10px;
+  border-radius: 3px;
+  outline: none;
+}
+.sector-config-row input[type="text"]:focus {
+  border-color: var(--accent-color, #6366f1);
+}
+.sector-config-row input[type="color"] {
+  width: 24px;
+  height: 24px;
+  border: none;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  background: none;
+}
+
+/* CF-2: Split view for sector map on wide viewports */
+@container content (min-width: 600px) {
+  #controlTabSectors .sector-map-container {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 8px;
+  }
+  #controlTabSectors #sectorDetailCard {
+    position: static;
+    margin-top: 0;
+    align-self: start;
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
+  #controlTabSectors #sectorMapCanvas {
+    grid-column: 1;
+  }
+}
+
 .worker-card {
   padding: 8px 10px;
   background: var(--bg-tertiary);
@@ -906,18 +1045,47 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: row;
-  gap: 12px;
+  gap: 0;
   padding: 12px;
 }
 
-.left-pane {
-  flex: 1 1 50%;
+/* Persistent chat pane (left 33%) */
+.chat-pane {
+  flex: 0 0 33%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: 50%;
+  border-right: 1px solid var(--border-color);
+  padding-right: 8px;
+}
+
+/* Content pane (right 67%, tab-switchable) */
+.content-pane {
+  flex: 1 1 0%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding-left: 8px;
 }
 
+/* Chat/content splitter */
+#chatSplitter {
+  display: block;
+  width: 4px;
+  min-width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+#chatSplitter:hover {
+  background: var(--accent-color);
+}
+
+/* Legacy splitter (hidden) */
 .splitter {
   display: none;
 }
@@ -927,6 +1095,23 @@ body.resizing, body.resizing * {
   user-select: none !important;
 }
 
+/* Left-pane (legacy, hidden) */
+.left-pane {
+  display: none;
+}
+
+/* Station section (replaces right-pane for station tab) */
+.station-section {
+  flex: 1;
+  overflow: hidden;
+  display: none;
+  flex-direction: column;
+}
+.station-section.active {
+  display: flex;
+}
+
+/* Legacy right-pane (now part of station-section) */
 .right-pane {
   flex: 1 1 50%;
   overflow: hidden;
@@ -1026,30 +1211,31 @@ body.resizing, body.resizing * {
   filter: brightness(1.5);
 }
 
-.right-pane[data-panel-mode="station"] .control-panel {
+.station-section[data-panel-mode="station"] .control-panel {
   display: none;
 }
 
-.right-pane[data-panel-mode="control"] .ship-canvas,
-.right-pane[data-panel-mode="control"] .station-info {
+.station-section[data-panel-mode="control"] .ship-canvas,
+.station-section[data-panel-mode="control"] .station-info {
   display: none;
 }
 
-.right-pane[data-panel-mode="control"] .control-panel {
-  display: block;
+.station-section[data-panel-mode="control"] .control-panel {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 0;
 }
 
 /* Flow/Chat/Planning panel modes - hide station view elements */
-.right-pane[data-panel-mode="flow"] .ship-panel,
-.right-pane[data-panel-mode="chat"] .ship-panel,
-.right-pane[data-panel-mode="planning"] .ship-panel {
+.station-section[data-panel-mode="flow"] .ship-panel,
+.station-section[data-panel-mode="chat"] .ship-panel,
+.station-section[data-panel-mode="planning"] .ship-panel {
   display: none;
 }
 
-.right-pane[data-panel-mode="flow"] #flowPanelContent,
-.right-pane[data-panel-mode="chat"] #chatPanelContent,
-.right-pane[data-panel-mode="planning"] #planningPanelContent {
+.station-section[data-panel-mode="flow"] #flowPanelContent,
+.station-section[data-panel-mode="chat"] #chatPanelContent,
+.station-section[data-panel-mode="planning"] #planningPanelContent {
   display: flex !important;
 }
 
@@ -1370,17 +1556,22 @@ body.resizing, body.resizing * {
 
 .control-panel {
   flex: 1 1 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--bg-secondary);
   padding: 10px;
+  min-height: 0;
 }
 
 .control-tabs {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .control-tab-btn {
@@ -1388,9 +1579,10 @@ body.resizing, body.resizing * {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .control-tab-btn.active {
@@ -1399,11 +1591,46 @@ body.resizing, body.resizing * {
 }
 
 .control-tab-body {
-  display: block;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .control-tab-panel {
-  display: block;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Sector map fills all available vertical space */
+#controlTabSectors .sector-map-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#controlTabSectors .sector-map-toolbar {
+  flex-shrink: 0;
+}
+
+#controlTabSectors .sector-map-canvas-wrap {
+  flex: 1;
+  min-height: 200px;
+  position: relative;
+}
+
+#controlTabSectors #sectorDetailCard,
+#controlTabSectors .sector-map-summary,
+#controlTabSectors #sectorConfigPanel {
+  flex-shrink: 0;
+}
+
+#controlTabSectors #sectorMapTierBanner {
+  flex-shrink: 0;
 }
 
 .info-row {
@@ -2862,6 +3089,90 @@ body.resizing, body.resizing * {
   animation: pulse 1s infinite;
 }
 
+/* Tag Strip (V3 status bar redesign) */
+.tag-strip {
+  flex-wrap: wrap;
+  padding: 4px 10px;
+  gap: 4px;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: default;
+  user-select: none;
+}
+.tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.tag-persona {
+  cursor: pointer;
+  color: var(--text-primary);
+  border-color: rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.08);
+  transition: background 0.15s, border-color 0.15s;
+}
+.tag-persona:hover {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.6);
+}
+.tag-pin {
+  display: none;
+  font-size: 8px;
+  opacity: 0.7;
+}
+.tag-persona.pinned .tag-pin {
+  display: inline;
+}
+.tag-unpin {
+  display: none;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 1px;
+  line-height: 1;
+}
+.tag-persona.pinned .tag-unpin {
+  display: inline;
+}
+.tag-unpin:hover {
+  color: var(--error-text);
+}
+.tag-skill {
+  color: var(--accent-color);
+  border-color: rgba(0, 229, 255, 0.25);
+  background: rgba(0, 229, 255, 0.06);
+}
+.tag-skin {
+  color: var(--accent-claude);
+  border-color: rgba(255, 122, 24, 0.25);
+  background: rgba(255, 122, 24, 0.06);
+}
+.tag-status {
+  margin-left: auto;
+}
+.tag-status .status-dot {
+  width: 6px;
+  height: 6px;
+}
+.tag-group {
+  display: contents;
+}
+
 /* Settings Tab */
 .settings-content {
   padding: 24px;
@@ -3209,35 +3520,13 @@ body.resizing, body.resizing * {
   flex-shrink: 0;
 }
 
-/* Persona Status Bar (12.2) */
-.persona-status-bar {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-  align-items: center;
-}
-.persona-status-item {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  cursor: pointer;
-  padding: 1px 4px;
-  border-radius: 4px;
-  transition: background 0.15s;
-}
-.persona-status-item:hover {
-  background: var(--bg-hover);
-}
-.persona-label {
-  font-size: 9px;
-  color: var(--text-secondary);
-}
+/* Persona Status Bar (12.2) — removed in V3, replaced by Chat Context Bar */
 
 /* Debug panel borders toggle (12.1) */
 body.show-panel-borders .dashboard-panel,
 body.show-panel-borders .ship-panel,
 body.show-panel-borders .chat-column,
-body.show-panel-borders .right-pane,
+body.show-panel-borders .station-section,
 body.show-panel-borders .agents-sidebar,
 body.show-panel-borders .control-tab-panel {
   border: 2px dashed rgba(0, 229, 255, 0.4) !important;
@@ -7435,4 +7724,576 @@ select.input-field {
     grid-template-columns: 1fr;
     gap: 4px;
   }
+}
+
+/* ============================================
+   Phase 0.5: Per-Tab Content Area Adjustments
+   Container queries for content-pane responsiveness
+   ============================================ */
+.content-pane {
+  container-type: inline-size;
+  container-name: content;
+}
+
+/* Dashboard: stack metrics vertically when content-pane is narrow */
+@container content (max-width: 400px) {
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-container {
+    padding: 12px;
+  }
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+@container content (max-width: 500px) {
+  .dashboard-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Agents: collapse sidebar when narrow */
+@container content (max-width: 450px) {
+  .agents-container {
+    flex-direction: column;
+  }
+  .agents-sidebar {
+    width: 100%;
+    max-height: 160px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+}
+
+/* Skills: reflow skill cards to single column when narrow */
+@container content (max-width: 400px) {
+  .skills-container {
+    padding: 12px;
+  }
+  .skills-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .skills-categories {
+    flex-wrap: wrap;
+  }
+}
+
+/* Station: sector detail card overlays instead of side-by-side */
+@container content (max-width: 450px) {
+  #sectorDetailCard {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    border-radius: 0;
+  }
+}
+
+/* ============================================
+   Phase 0.6: Responsive Behavior
+   Auto-collapse, min widths, resize feedback
+   ============================================ */
+
+/* Splitter drag feedback */
+#chatSplitter:active,
+#chatSplitter.dragging {
+  background: var(--accent-color);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.3);
+}
+
+/* Collapsed chat pane state */
+.chat-pane.collapsed {
+  flex: 0 0 0px !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  overflow: hidden;
+  padding: 0;
+  border-right: none;
+}
+.chat-pane.collapsed > * {
+  display: none;
+}
+
+/* Expand button (visible when chat collapsed) */
+.chat-expand-btn {
+  display: none;
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 8px 4px;
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.chat-expand-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+.chat-pane.collapsed ~ #chatSplitter ~ .content-pane .chat-expand-btn,
+body.chat-collapsed .chat-expand-btn {
+  display: block;
+}
+
+/* Collapse button (in chat context bar) */
+.chat-collapse-btn {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.15s, color 0.15s;
+}
+.chat-collapse-btn:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
+/* Narrow viewport: single-panel mode */
+body.single-panel-mode .chat-pane:not(.collapsed) {
+  flex: 1 1 100% !important;
+  max-width: 100% !important;
+  border-right: none;
+  padding-right: 0;
+}
+body.single-panel-mode .content-pane {
+  display: none !important;
+}
+body.single-panel-mode #chatSplitter {
+  display: none !important;
+}
+body.single-panel-mode.show-content .chat-pane {
+  display: none !important;
+}
+body.single-panel-mode.show-content .content-pane {
+  display: flex !important;
+}
+body.single-panel-mode.show-content #chatSplitter {
+  display: none !important;
+}
+
+/* Single-panel toggle button */
+.panel-toggle-fab {
+  display: none;
+  position: fixed;
+  bottom: 60px;
+  right: 12px;
+  z-index: 50;
+  background: var(--accent-color);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 229, 255, 0.3);
+  transition: transform 0.15s;
+}
+.panel-toggle-fab:hover {
+  transform: scale(1.1);
+}
+body.single-panel-mode .panel-toggle-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Phase 0.4: Pinned icon for manual persona override */
+.persona-selector .pinned-icon {
+  display: none;
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+.persona-selector.pinned .pinned-icon {
+  display: inline;
+}
+
+/* Phase 0.8: Active skill badges in context bar */
+.context-bar-skill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: default;
+}
+.context-bar-skill-badge:hover {
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+}
+
+/* ================================================================
+   Phase 1: Station Engineer Styles
+   ================================================================ */
+
+/* Status Strip */
+.engineer-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.engineer-status-strip:hover {
+  background: var(--bg-tertiary, rgba(255,255,255,0.04));
+}
+
+/* Health Indicators */
+.engineer-health-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.engineer-health-indicator.ok { background: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,0.4); }
+.engineer-health-indicator.warn { background: #f59e0b; box-shadow: 0 0 4px rgba(245,158,11,0.4); }
+.engineer-health-indicator.critical { background: #ef4444; box-shadow: 0 0 4px rgba(239,68,68,0.4); animation: engineer-pulse 1.5s ease-in-out infinite; }
+
+.engineer-health-big {
+  font-weight: 700;
+}
+.engineer-health-big.ok { color: #22c55e; }
+.engineer-health-big.warn { color: #f59e0b; }
+.engineer-health-big.critical { color: #ef4444; }
+
+@keyframes engineer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Inline Prompt Bar */
+.engineer-prompt-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(245,158,11,0.08);
+  border-bottom: 1px solid rgba(245,158,11,0.2);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+/* Engineer Sections */
+.engineer-section {
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+/* Ship Status */
+.engineer-ship-status {
+  margin-top: 4px;
+}
+
+/* Suggestion Cards */
+.engineer-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.engineer-suggestion-card {
+  padding: 8px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s;
+}
+.engineer-suggestion-card:hover {
+  border-color: var(--accent-color, #6366f1);
+}
+
+.engineer-action-btn {
+  font-size: 10px !important;
+  padding: 3px 8px !important;
+}
+
+/* Delegate Grid */
+.engineer-delegate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.engineer-delegate-btn {
+  padding: 6px 8px !important;
+  font-size: 10px !important;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* History */
+.engineer-history-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.engineer-history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.engineer-history-row:last-child {
+  border-bottom: none;
+}
+
+/* ─── Autopilot (Phase 3) ────────────────────────────── */
+
+.autopilot-status-label {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.autopilot-status-label.running {
+  color: #00e5ff;
+  background: rgba(0, 229, 255, 0.15);
+}
+.autopilot-status-label.paused {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+}
+.autopilot-status-label.pausing {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.10);
+}
+.autopilot-status-label.stopping {
+  color: #ff4d6d;
+  background: rgba(255, 77, 109, 0.10);
+}
+.autopilot-status-label.completed {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+}
+.autopilot-status-label.failed {
+  color: #ff4d6d;
+  background: rgba(255, 77, 109, 0.15);
+}
+.autopilot-status-label.idle {
+  color: var(--text-secondary);
+}
+
+.autopilot-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.autopilot-progress-fill {
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.autopilot-progress-fill.has-errors {
+  background: linear-gradient(90deg, var(--accent-color), #f59e0b);
+}
+
+.autopilot-step-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.autopilot-step-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.autopilot-step-row:last-child {
+  border-bottom: none;
+}
+
+/* ─── Game UI Pipeline (Phase 4) ─────────────────────── */
+
+.gameui-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.gameui-status.running {
+  color: #00e5ff;
+  background: rgba(0, 229, 255, 0.15);
+}
+.gameui-status.idle {
+  color: var(--text-secondary);
+}
+
+.gameui-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.gameui-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7C3AED, #3B82F6);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.gameui-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.gameui-category-chip:hover {
+  background: var(--bg-hover);
+}
+
+.gameui-component-list {
+  max-height: 250px;
+  overflow-y: auto;
+}
+.gameui-component-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.gameui-component-row:last-child {
+  border-bottom: none;
+}
+
+.gameui-theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  margin-bottom: 2px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+}
+.gameui-theme-row.active {
+  border: 1px solid var(--accent-color);
+}
+
+.gameui-event-feed {
+  font-family: monospace;
+  font-size: 9px;
+}
+
+/* ─── Comms Array (Phase 7) ────────────────────────────── */
+
+.comms-section {
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.comms-service-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.comms-scan-row {
+  padding: 6px;
+  margin-bottom: 4px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s;
+}
+.comms-scan-row:hover {
+  border-color: var(--accent-color);
+}
+
+.comms-finding-row {
+  padding: 6px 6px 6px 10px;
+  margin-bottom: 4px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+
+.comms-severity-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+/* ─── Ops Array (Phase 8) ────────────────────────────── */
+
+.ops-section {
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.ops-server-row {
+  padding: 6px;
+  margin-bottom: 4px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s;
+}
+.ops-server-row:hover {
+  border-color: var(--accent-color);
+}
+
+.ops-metric-card {
+  padding: 6px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.ops-log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.ops-log-row:last-child {
+  border-bottom: none;
 }

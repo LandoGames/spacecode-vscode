@@ -52,7 +52,7 @@ export interface KeyboardShortcut {
 }
 
 const DEFAULT_SETTINGS: SpaceCodeSettings = {
-  defaultPersona: 'nova',
+  defaultPersona: 'lead-engineer',
   theme: 'dark',
   language: 'en',
   aiProvider: 'claude',

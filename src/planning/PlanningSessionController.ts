@@ -25,8 +25,8 @@ export const PLANNING_PHASES: Record<PlanningPhase, PlanningPhaseConfig> = {
   study: {
     id: 'study',
     name: 'Study',
-    leadPersona: 'nova',
-    supportPersona: 'index',
+    leadPersona: 'lead-engineer',
+    supportPersona: 'technical-writer',
     description: 'Understand the feature, gather requirements, check GDD',
     checklist: [
       'Feature requirements identified',
@@ -40,8 +40,8 @@ export const PLANNING_PHASES: Record<PlanningPhase, PlanningPhaseConfig> = {
   connect: {
     id: 'connect',
     name: 'Connect',
-    leadPersona: 'gears',
-    supportPersona: 'index',
+    leadPersona: 'qa-engineer',
+    supportPersona: 'technical-writer',
     description: 'Map to existing code, identify touch points, check SA',
     checklist: [
       'Existing code analyzed',
@@ -55,8 +55,8 @@ export const PLANNING_PHASES: Record<PlanningPhase, PlanningPhaseConfig> = {
   plan: {
     id: 'plan',
     name: 'Plan',
-    leadPersona: 'nova',
-    supportPersona: 'gears',
+    leadPersona: 'lead-engineer',
+    supportPersona: 'qa-engineer',
     description: 'Break into phases, define tasks, estimate risk',
     checklist: [
       'Phases defined',
@@ -70,7 +70,7 @@ export const PLANNING_PHASES: Record<PlanningPhase, PlanningPhaseConfig> = {
   review: {
     id: 'review',
     name: 'Review',
-    leadPersona: 'index',
+    leadPersona: 'technical-writer',
     description: 'Validate plan, update docs, approve',
     checklist: [
       'Plan structure valid',
@@ -91,7 +91,7 @@ const DEFAULT_GATES: Omit<PlanningGate, 'status' | 'checkedAt' | 'checkedBy'>[] 
     phase: 'study',
     name: 'Study Complete',
     criteria: 'Feature understood, requirements listed',
-    owner: 'nova',
+    owner: 'lead-engineer',
     required: true
   },
   {
@@ -99,7 +99,7 @@ const DEFAULT_GATES: Omit<PlanningGate, 'status' | 'checkedAt' | 'checkedBy'>[] 
     phase: 'connect',
     name: 'Connection Mapped',
     criteria: 'Existing code analyzed, touch points identified',
-    owner: 'gears',
+    owner: 'qa-engineer',
     required: true
   },
   {
@@ -115,7 +115,7 @@ const DEFAULT_GATES: Omit<PlanningGate, 'status' | 'checkedAt' | 'checkedBy'>[] 
     phase: 'review',
     name: 'Docs Updated',
     criteria: 'SA/GDD reflect planned changes',
-    owner: 'index',
+    owner: 'technical-writer',
     required: false
   }
 ];

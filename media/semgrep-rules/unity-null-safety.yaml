@@ -1,0 +1,94 @@
+rules:
+  - id: spacecode.unity.null.unchecked-getcomponent
+    pattern: |
+      $X = GetComponent<$TYPE>();
+      ...
+      $X.$METHOD(...);
+    pattern-not: |
+      $X = GetComponent<$TYPE>();
+      ...
+      if ($X != null) { ... $X.$METHOD(...); ... }
+    message: >
+      GetComponent<T>() may return null if the component doesn't exist.
+      Always null-check the result before using it: if ($X != null) { ... }
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: security
+      technology: [unity]
+      confidence: MEDIUM
+      impact: MEDIUM
+
+  - id: spacecode.unity.null.destroyed-object-access
+    patterns:
+      - pattern: |
+          Destroy($OBJ);
+          ...
+          $OBJ.$MEMBER
+      - pattern: |
+          DestroyImmediate($OBJ);
+          ...
+          $OBJ.$MEMBER
+    message: >
+      Accessing a destroyed Unity object throws MissingReferenceException.
+      Set the reference to null after Destroy() or check before access.
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      technology: [unity]
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.unity.null.coroutine-null-check
+    pattern: |
+      IEnumerator $METHOD(...) {
+        ...
+        yield return ...;
+        ...
+        $OBJ.$MEMBER
+        ...
+      }
+    message: >
+      Objects may be destroyed during a yield in a coroutine.
+      Add null checks after yield statements for any Unity object references.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: security
+      technology: [unity]
+      confidence: LOW
+      impact: MEDIUM
+
+  - id: spacecode.unity.null.singleton-null
+    pattern: |
+      public static $TYPE Instance { get; ... }
+      ...
+      $TYPE.Instance.$METHOD(...)
+    message: >
+      Singleton access without null check. Instance may not be initialized yet
+      (e.g., if accessed from Awake() before the singleton's Awake() runs).
+      Consider adding a null guard or using lazy initialization.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: security
+      technology: [unity]
+      confidence: LOW
+      impact: MEDIUM
+
+  - id: spacecode.unity.null.array-out-of-bounds
+    pattern: |
+      $ARR[$INDEX]
+    pattern-where-python: >
+      "childCount" in vars["$ARR"].value or "Length" in vars.get("$INDEX", {}).get("value", "")
+    message: >
+      Potential array/collection index out of bounds. Validate index against
+      the collection length before accessing.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: security
+      technology: [unity]
+      confidence: LOW
+      impact: LOW

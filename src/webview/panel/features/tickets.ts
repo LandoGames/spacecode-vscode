@@ -49,8 +49,8 @@ export function createTicketPanelHandlers(deps) {
   }
 
   function getRoutedPersona(ticketType) {
-    const routing = { bug: 'gears', feature: 'nova', doc_update: 'index', refactor: 'gears', question: 'nova' };
-    return routing[ticketType] || 'nova';
+    const routing = { bug: 'qa-engineer', feature: 'lead-engineer', doc_update: 'technical-writer', refactor: 'qa-engineer', question: 'lead-engineer' };
+    return routing[ticketType] || 'lead-engineer';
   }
 
   function updateTicketTypePreview() {
@@ -74,8 +74,10 @@ export function createTicketPanelHandlers(deps) {
   }
 
   function showTicketsPanel() {
-    document.getElementById('chatSection').style.display = 'none';
+    // V3: Chat is persistent in left pane — only toggle content-pane sections
     document.getElementById('agentsSection').style.display = 'none';
+    const stationSection = document.getElementById('stationSection');
+    if (stationSection) stationSection.classList.remove('active');
     document.getElementById('ticketsSection').style.display = 'flex';
 
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
@@ -87,7 +89,6 @@ export function createTicketPanelHandlers(deps) {
 
   function hideTicketsPanel() {
     document.getElementById('ticketsSection').style.display = 'none';
-    document.getElementById('chatSection').style.display = 'flex';
   }
 
   function toggleTicketFormMain() {

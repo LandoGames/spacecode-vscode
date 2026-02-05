@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SoundService } from '../../services/soundService';
 
 export function createAutoexecuteImpl(panel: any) {
   function loadJobs() {
@@ -23,6 +24,7 @@ export function createAutoexecuteImpl(panel: any) {
     jobs.unshift(newJob);
     saveJobs(jobs.slice(0, 50));
     panel._postMessage({ type: 'autoexecuteJobs', jobs });
+    SoundService.getInstance().play('jobQueued');
     return newJob;
   }
 

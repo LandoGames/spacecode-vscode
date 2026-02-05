@@ -261,6 +261,224 @@ export const DEFAULT_RPG_SECTORS: Sector[] = [
 ];
 
 /**
+ * Platformer project template
+ */
+export const PLATFORMER_SECTORS: Sector[] = [
+  {
+    id: 'core', name: 'CORE', icon: 'cpu',
+    description: 'Shared types, interfaces, and utilities',
+    paths: ['**/Shared/**', '**/Core/**', '**/Common/**'],
+    rules: 'CORE sector — foundation layer. Keep pure C#, no Unity-specific deps.',
+    dependencies: [], approvalRequired: true, color: '#6366f1'
+  },
+  {
+    id: 'player', name: 'PLAYER', icon: 'person',
+    description: 'Player controller, movement, physics',
+    paths: ['**/Player/**', '**/Controller/**', '**/Character/**'],
+    rules: 'PLAYER sector — character controller and movement. Use FixedUpdate for physics.',
+    dependencies: ['core'], approvalRequired: false, color: '#22c55e'
+  },
+  {
+    id: 'levels', name: 'LEVELS', icon: 'map',
+    description: 'Level design, scenes, tile maps',
+    paths: ['**/Levels/**', '**/Scenes/**', '**/TileMap/**', '**/World/**'],
+    rules: 'LEVELS sector — level design and scene management. Use additive loading.',
+    dependencies: ['core'], approvalRequired: false, color: '#06b6d4'
+  },
+  {
+    id: 'enemies', name: 'ENEMIES', icon: 'flame',
+    description: 'Enemy AI, spawning, boss patterns',
+    paths: ['**/Enemies/**', '**/AI/**', '**/Boss/**'],
+    rules: 'ENEMIES sector — enemy behavior and spawning. Use object pooling.',
+    dependencies: ['core', 'player'], approvalRequired: false, color: '#ef4444'
+  },
+  {
+    id: 'items', name: 'ITEMS', icon: 'archive',
+    description: 'Collectibles, power-ups, pickups',
+    paths: ['**/Items/**', '**/Pickups/**', '**/PowerUps/**'],
+    rules: 'ITEMS sector — collectibles and power-ups. ScriptableObjects for definitions.',
+    dependencies: ['core'], approvalRequired: false, color: '#f59e0b'
+  },
+  {
+    id: 'ui', name: 'UI', icon: 'layout',
+    description: 'HUD, menus, dialogs',
+    paths: ['**/UI/**', '**/HUD/**', '**/Menus/**'],
+    rules: 'UI sector — user interface. MVP pattern, prefer UI Toolkit.',
+    dependencies: ['core'], approvalRequired: false, color: '#a855f7'
+  },
+  {
+    id: 'audio', name: 'AUDIO', icon: 'chat',
+    description: 'Sound effects, music, audio management',
+    paths: ['**/Audio/**', '**/Sound/**', '**/Music/**'],
+    rules: 'AUDIO sector — audio management. Use AudioMixer groups.',
+    dependencies: ['core'], approvalRequired: false, color: '#8b5cf6'
+  },
+  {
+    id: 'editor', name: 'TOOLS', icon: 'wrench',
+    description: 'Editor tools, level editors, debug',
+    paths: ['**/Editor/**'],
+    rules: 'TOOLS sector — editor only. Never include in runtime builds.',
+    dependencies: [], approvalRequired: false, color: '#78716c'
+  },
+  {
+    id: 'yard', name: 'YARD', icon: 'beaker',
+    description: 'Prototyping and experiments',
+    paths: ['**/Sandbox/**', '**/Prototype/**', '**/Test/**'],
+    rules: 'YARD sector — no rules enforced. Move to proper sector when ready.',
+    dependencies: [], approvalRequired: false, color: '#fbbf24'
+  },
+];
+
+/**
+ * Multiplayer project template
+ */
+export const MULTIPLAYER_SECTORS: Sector[] = [
+  {
+    id: 'core', name: 'CORE', icon: 'cpu',
+    description: 'Shared types, interfaces, serialization',
+    paths: ['**/Shared/**', '**/Core/**', '**/Common/**'],
+    rules: 'CORE sector — shared between client and server. All types must be serializable.',
+    dependencies: [], approvalRequired: true, color: '#6366f1'
+  },
+  {
+    id: 'network', name: 'NETWORK', icon: 'globe',
+    description: 'Networking, sync, RPC, transport',
+    paths: ['**/Network/**', '**/Netcode/**', '**/Transport/**', '**/Sync/**'],
+    rules: 'NETWORK sector — networking layer. Minimize bandwidth, use delta compression.',
+    dependencies: ['core'], approvalRequired: true, color: '#14b8a6'
+  },
+  {
+    id: 'lobby', name: 'LOBBY', icon: 'chat',
+    description: 'Matchmaking, lobby, session management',
+    paths: ['**/Lobby/**', '**/Matchmaking/**', '**/Session/**'],
+    rules: 'LOBBY sector — session management. Handle disconnections gracefully.',
+    dependencies: ['core', 'network'], approvalRequired: false, color: '#8b5cf6'
+  },
+  {
+    id: 'gameplay', name: 'GAMEPLAY', icon: 'flame',
+    description: 'Game mechanics, rules, scoring',
+    paths: ['**/Gameplay/**', '**/Game/**', '**/Rules/**', '**/Combat/**'],
+    rules: 'GAMEPLAY sector — game logic. Server-authoritative for competitive modes.',
+    dependencies: ['core', 'network'], approvalRequired: false, color: '#ef4444'
+  },
+  {
+    id: 'player', name: 'PLAYER', icon: 'person',
+    description: 'Player controller, input, state',
+    paths: ['**/Player/**', '**/Input/**', '**/Controller/**'],
+    rules: 'PLAYER sector — player state. Use client-side prediction with server reconciliation.',
+    dependencies: ['core', 'network'], approvalRequired: false, color: '#22c55e'
+  },
+  {
+    id: 'ui', name: 'UI', icon: 'layout',
+    description: 'HUD, scoreboard, chat, menus',
+    paths: ['**/UI/**', '**/HUD/**', '**/Menus/**'],
+    rules: 'UI sector — interface. Show connection quality indicators.',
+    dependencies: ['core'], approvalRequired: false, color: '#a855f7'
+  },
+  {
+    id: 'server', name: 'SERVER', icon: 'database',
+    description: 'Dedicated server, headless, admin',
+    paths: ['**/Server/**', '**/Headless/**', '**/Admin/**'],
+    rules: 'SERVER sector — server-side only. Never ship to client builds.',
+    dependencies: ['core', 'network'], approvalRequired: true, color: '#64748b'
+  },
+  {
+    id: 'editor', name: 'TOOLS', icon: 'wrench',
+    description: 'Editor tools, network debug',
+    paths: ['**/Editor/**'],
+    rules: 'TOOLS sector — editor only. Include network simulation tools.',
+    dependencies: [], approvalRequired: false, color: '#78716c'
+  },
+  {
+    id: 'yard', name: 'YARD', icon: 'beaker',
+    description: 'Prototyping and experiments',
+    paths: ['**/Sandbox/**', '**/Prototype/**', '**/Test/**'],
+    rules: 'YARD sector — no rules enforced.',
+    dependencies: [], approvalRequired: false, color: '#fbbf24'
+  },
+];
+
+/**
+ * Mobile project template
+ */
+export const MOBILE_SECTORS: Sector[] = [
+  {
+    id: 'core', name: 'CORE', icon: 'cpu',
+    description: 'Shared types, interfaces, utilities',
+    paths: ['**/Shared/**', '**/Core/**', '**/Common/**'],
+    rules: 'CORE sector — foundation. Minimize allocations, pool everything.',
+    dependencies: [], approvalRequired: true, color: '#6366f1'
+  },
+  {
+    id: 'gameplay', name: 'GAMEPLAY', icon: 'flame',
+    description: 'Game mechanics, levels, progression',
+    paths: ['**/Gameplay/**', '**/Game/**', '**/Levels/**'],
+    rules: 'GAMEPLAY sector — game logic. Target 60fps, avoid GC in update loops.',
+    dependencies: ['core'], approvalRequired: false, color: '#ef4444'
+  },
+  {
+    id: 'input', name: 'INPUT', icon: 'person',
+    description: 'Touch input, gestures, haptics',
+    paths: ['**/Input/**', '**/Touch/**', '**/Gestures/**'],
+    rules: 'INPUT sector — touch handling. Support both portrait and landscape.',
+    dependencies: ['core'], approvalRequired: false, color: '#22c55e'
+  },
+  {
+    id: 'monetization', name: 'SHOP', icon: 'archive',
+    description: 'IAP, ads, virtual currency',
+    paths: ['**/IAP/**', '**/Store/**', '**/Ads/**', '**/Monetization/**'],
+    rules: 'SHOP sector — monetization. Follow platform guidelines. Validate server-side.',
+    dependencies: ['core'], approvalRequired: true, color: '#f59e0b'
+  },
+  {
+    id: 'ui', name: 'UI', icon: 'layout',
+    description: 'Touch-friendly UI, safe areas, adaptive',
+    paths: ['**/UI/**', '**/HUD/**', '**/Menus/**'],
+    rules: 'UI sector — mobile UI. Respect safe areas, min 44px touch targets.',
+    dependencies: ['core'], approvalRequired: false, color: '#a855f7'
+  },
+  {
+    id: 'persistence', name: 'SAVE', icon: 'database',
+    description: 'Save system, cloud saves, analytics',
+    paths: ['**/Save/**', '**/Persistence/**', '**/Analytics/**', '**/Cloud/**'],
+    rules: 'SAVE sector — data persistence. Encrypt saves, support cloud backup.',
+    dependencies: ['core'], approvalRequired: false, color: '#64748b'
+  },
+  {
+    id: 'performance', name: 'PERF', icon: 'robot',
+    description: 'LOD, pooling, asset bundles, optimization',
+    paths: ['**/Performance/**', '**/Optimization/**', '**/AssetBundle/**'],
+    rules: 'PERF sector — optimization. Profile on low-end devices. Use Addressables.',
+    dependencies: ['core'], approvalRequired: false, color: '#ec4899'
+  },
+  {
+    id: 'editor', name: 'TOOLS', icon: 'wrench',
+    description: 'Editor tools, build scripts',
+    paths: ['**/Editor/**'],
+    rules: 'TOOLS sector — editor only.',
+    dependencies: [], approvalRequired: false, color: '#78716c'
+  },
+  {
+    id: 'yard', name: 'YARD', icon: 'beaker',
+    description: 'Prototyping and experiments',
+    paths: ['**/Sandbox/**', '**/Prototype/**', '**/Test/**'],
+    rules: 'YARD sector — no rules enforced.',
+    dependencies: [], approvalRequired: false, color: '#fbbf24'
+  },
+];
+
+/**
+ * Sector template registry
+ */
+export const SECTOR_TEMPLATES: Record<string, { label: string; sectors: Sector[] }> = {
+  rpg: { label: 'RPG / Adventure', sectors: DEFAULT_RPG_SECTORS },
+  platformer: { label: 'Platformer', sectors: PLATFORMER_SECTORS },
+  multiplayer: { label: 'Multiplayer', sectors: MULTIPLAYER_SECTORS },
+  mobile: { label: 'Mobile', sectors: MOBILE_SECTORS },
+  blank: { label: 'Blank', sectors: [] },
+};
+
+/**
  * Sector Manager - handles sector detection and context
  */
 export class SectorManager {

@@ -17,6 +17,17 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "spacecode.markdownEditor",
+        "displayName": "SpaceCode Markdown (Live Preview)",
+        "selector": [
+          { "filenamePattern": "*.md" },
+          { "filenamePattern": "*.markdown" }
+        ],
+        "priority": "option"
+      }
+    ],
     "commands": [
       {
         "command": "spacecode.openPanel",

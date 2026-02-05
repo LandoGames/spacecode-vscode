@@ -1,6 +1,6 @@
 # SpaceCode V3 Implementation Checklist
 
-**Status**: Draft
+**Status**: Phase 0 Complete (+/help +icons), Phase 5.0 Complete, CF-1 Sound UI + cross-platform + events wired, CF-2 Complete (except 2 deferred), CF-3 Diagnostics tab added, CF-7 Settings reviewed, CF-8 Complete, Phase 1 Complete (1.1–1.4; 1.5 deferred), Phase 2 Complete, Phase 3 Complete, Phase 4 Infrastructure Complete, Phase 5 Complete, Phase 6 Complete, Phase 7 Core Complete (+persistence), Phase 8 Core Complete (+persistence), Phase 9 Core Complete, **Post-V3 Refinements Complete** (R1–R6: tag strip, per-tab modes, split layout, flow fix, module scaffolding, settings overlay)
 **Baseline**: V2 complete (Phases 0–12 implemented, deferred items carried forward)
 **Approach**: Phase 0 (persistent chat layout) is foundational — implement first, then remaining phases in order
 
@@ -30,31 +30,31 @@
 > Sound system is built but doesn't play in Extension Dev Host
 > Files: `src/mastercode_port/services/soundService.ts`, `src/extension.ts`
 
-- [ ] Debug `extensionPath` resolution in Extension Dev Host
-- [ ] Verify `media/sounds/*.mp3` files are accessible at runtime
-- [ ] Confirm `SoundService.getInstance().play('aiComplete')` fires and reaches `afplay`
-- [ ] Wire remaining events: `aiError`, `planReady`, `workflowDone`, `jobQueued`, `jobApproved`, `sectorViolation`
-- [ ] Add sound settings UI to Dashboard Settings tab
-- [ ] Add `getSoundSettings` / `saveSoundSettings` message types
-- [ ] Implement Windows playback (PowerShell `SoundPlayer`)
-- [ ] Implement Linux playback (`paplay` / `aplay`)
+- [x] Debug `extensionPath` resolution in Extension Dev Host (uses context.extensionPath — correct)
+- [ ] Verify `media/sounds/*.mp3` files are accessible at runtime (need actual .mp3 files)
+- [x] Confirm `SoundService.getInstance().play('aiComplete')` fires and reaches `afplay`
+- [x] Wire remaining events: `aiError`, `planReady`, `workflowDone`, `jobQueued`, `jobApproved`, `sectorViolation`
+- [x] Add sound settings UI to Dashboard Settings tab (volume slider + per-event toggles)
+- [x] Add `getSoundSettings` / `saveSoundSettings` message types
+- [x] Implement Windows playback (PowerShell MediaPlayer)
+- [x] Implement Linux playback (`paplay` / `aplay`)
 
 ### CF-2: Sector Map Polish
 > Remaining UI polish items from Phase 4
 
-- [ ] Solid edges for enforced (asmdef), dashed for intended (config-only)
-- [ ] Edit Policy quick action on Sector Card
-- [ ] Back button returns to Sector Map from Card view
-- [ ] Layout: split view (graph left, card right) or full-card on narrow layouts
-- [ ] Health trend over time (stored in globalState)
-- [ ] AI context injection works regardless of tier
-- [ ] Detect wrong folder placement
-- [ ] Generate refactor plan to align code with SA
+- [x] Solid edges for enforced (asmdef), dashed for intended (config-only)
+- [x] Edit Policy quick action on Sector Card
+- [x] Back button returns to Sector Map from Card view
+- [x] Layout: split view (graph left, card right) or full-card on narrow layouts
+- [x] Health trend over time (stored in localStorage, trend arrow ↑↓→)
+- [x] AI context injection works regardless of tier (`contextAvailable` flag)
+- [ ] Detect wrong folder placement (deferred to Phase 1)
+- [ ] Generate refactor plan to align code with SA (deferred to Phase 1)
 
 ### CF-3: Testing & Quality Gaps
 > Remaining Phase 6 items — partially addressed by Semgrep integration (Phase 2 below)
 
-- [ ] Diagnostics tab: build/compile check, syntax error detection, missing references, results UI
+- [x] Diagnostics tab: build/compile check, syntax error detection, missing references, results UI
 - [ ] Tests tab: unit test runner, integration test runner, asmdef dependency check, GUID validation, lint/style
 - [ ] Security tab: dependency CVE checks (via Semgrep Supply Chain)
 - [ ] Quality tab: unused imports, circular dependency checker, SA sector violation checker
@@ -63,7 +63,7 @@
 ### CF-4: Doc Sync AI Integration
 > Phase 5.4 — detection works, AI-driven propose/approve/update pending
 
-- [ ] Index proposes doc updates based on detected drift
+- [ ] Technical Writer proposes doc updates based on detected drift
 - [ ] Sync workflow: detect → propose → approve → update
 
 ### CF-5: MCP Live Connection Features
@@ -82,131 +82,244 @@
 > Phase 11–12 deferrals
 
 - [ ] Learn mode / Maintenance mode for Explorer integration
-- [ ] Settings cleanup: autoexecute toggle placement, context pack placement
-- [ ] Persona status bar: show current action for Working status
+- [x] Settings cleanup: autoexecute toggle placement, context pack placement (both well-placed in General/Info)
+- ~~Persona status bar: show current action for Working status~~ — **OBSOLETE**: Persona bar replaced by Chat Context Bar (Phase 0.7)
 
 ### CF-8: Sector Configuration UI
 > Phase 12.4 — full sector editor
 
-- [ ] Create/edit sectors from Station UI
-- [ ] Import/export `.spacecode/sectors.json`
-- [ ] Generate sectors from SA/GDD docs
-- [ ] Auto-detect sectors from folder structure
-- [ ] Template presets (RPG, Platformer, Multiplayer, etc.)
-- [ ] Migrate from hardcoded `DEFAULT_RPG_SECTORS` to file-based config
+- [x] Create/edit sectors from Station UI (Configure panel with inline editor)
+- [x] Import/export `.spacecode/sector-config.json` (via file dialogs)
+- [ ] Generate sectors from SA/GDD docs (deferred — requires AI integration)
+- [x] Auto-detect sectors from folder structure (asmdef scan + folder pattern scan)
+- [x] Template presets (RPG, Platformer, Multiplayer, Mobile, Blank)
+- [x] Migrate from hardcoded `DEFAULT_RPG_SECTORS` to file-based config (loadSectorConfig + config UI)
 
 ---
 
 ## Phase 0: Persistent Chat Layout
 > Foundational UX change — chat is always present across all tabs
 > Must be implemented first as all other phases depend on this layout
+>
+> **Prerequisite**: Phase 5.0 (Base Persona Rename) should be done first or in parallel, since Phase 0 UI references persona names. Implementing with old names (Nova, Gears) then renaming causes rework.
 
 ### 0.1 Header Navigation
 > Remove Chat tab — chat is always present; keep existing navigation structure
 
-- [ ] Remove "Chat" button from header tab bar (chat is always visible on left)
-- [ ] Remaining header tabs: Station, Agents, Skills, Dashboard (unchanged)
-- [ ] Dashboard sub-tabs remain contextual (appear only when Dashboard active) — no changes
-- [ ] Station mode buttons remain contextual (appear only when Station active) — no changes
+- [x] Remove "Chat" button from header tab bar (chat is always visible on left)
+- [x] Remaining header tabs: Station, Agents, Skills, Dashboard (unchanged)
+- [x] Dashboard sub-tabs remain contextual (appear only when Dashboard active) — see list below
+- [x] Station mode buttons remain contextual (appear only when Station active) — no changes
+
+**Dashboard Sub-tabs (V3):**
+| Sub-tab | Purpose | Notes |
+|---------|---------|-------|
+| Mission | Project overview, goals, health summary | Primary landing |
+| Docs | Documentation library (GDD, SA, TDD) | Major feature — `/docs` shortcut |
+| Tickets | Issue tracking, task management | Major feature — `/tickets` shortcut |
+| DB | Project database, schema viewer | If connected |
+| Art | Art assets, image generation | Art Director context |
+| MCP | MCP server status, connections | Moved from Settings |
+| Logs | System logs, debug output | Developer utility |
+| Storage | File storage, assets | Utility |
+| Info | Project info, version, stats | Utility |
+
+**Note**: Settings moved to ⚙️ overlay (already done in V2).
 
 ### 0.2 Layout Architecture
 > Split layout into Chat (left) + Content (right)
 
-- [ ] Refactor webview layout to two-column structure: chat panel (left) + content area (right)
-- [ ] Default width split: 33% chat / 67% content
-- [ ] Add draggable resize handle between chat and content panels
-- [ ] Persist user's preferred width ratio in settings (via `globalState` or settings store)
-- [ ] Add collapse button to hide chat entirely (full hide, not minimize to rail)
-- [ ] Add expand button (visible when chat is collapsed) to restore chat
-- [ ] Collapsed state persisted across tab switches and sessions
+- [x] Refactor webview layout to two-column structure: chat panel (left) + content area (right)
+- [x] Default width split: 33% chat / 67% content
+- [x] Add draggable resize handle between chat and content panels
+- [x] Persist user's preferred width ratio in settings (via `localStorage`)
+- [x] Add collapse button to hide chat entirely (full hide, not minimize to rail)
+- [x] Add expand button (visible when chat is collapsed) to restore chat
+- [x] Collapsed state persisted across tab switches and sessions
 
 ### 0.3 Chat Across All Tabs
 > Chat panel renders the same chat instance regardless of active tab
 
-- [ ] Chat panel is a single persistent instance — not re-created per tab
-- [ ] Tab switching does NOT clear chat history or reset scroll position
-- [ ] Chat input, message list, and controls render identically across all tabs
-- [ ] Content area swaps based on active tab: Station, Dashboard, Agents, Skills
+- [x] Chat panel is a single persistent instance — not re-created per tab
+- [x] Tab switching does NOT clear chat history or reset scroll position
+- [x] Chat input, message list, and controls render identically across all tabs
+- [x] Content area swaps based on active tab: Station, Dashboard, Agents, Skills
 
 ### 0.4 Persona Auto-Switching
 > Chat persona context changes based on active tab
 
-- [ ] Active tab determines default persona context:
-  - Station → Gears (sector map, engineer suggestions)
-  - Dashboard → Gears (project health, build info, settings)
-  - Agents → Nova (engineering tasks)
-  - Skills → Index (skill/doc lookup)
-- [ ] Persona switch is a context hint, not forced — user can manually override at any time
-- [ ] Show current persona name in chat header
-- [ ] Switching tabs does NOT interrupt an in-progress AI response
+- [x] Active tab determines default persona context:
+  - Station → QA Engineer (sector map, engineer suggestions)
+  - Dashboard → QA Engineer (project health, build info, settings)
+  - Agents → Lead Engineer (engineering tasks)
+  - Skills → Technical Writer (skill/doc lookup)
+- [x] Persona switch is a context hint, not forced — user can manually override at any time
+- [x] Show current persona name in chat header
+- [x] Switching tabs does NOT interrupt an in-progress AI response
+
+**Manual Override Precedence Rules:**
+- [x] Track `manualOverride: boolean` flag in chat state
+- [x] When user manually selects persona → set `manualOverride = true`
+- [x] When `manualOverride = true` → tab switches do NOT change persona
+- [x] Clear button in chat header resets to tab-default persona and sets `manualOverride = false`
+- [x] Visual indicator when in manual override mode (e.g., persona name has "pinned" icon)
 
 ### 0.5 Per-Tab Content Area Adjustments
 > Each tab's content adapts to the reduced width
 
-- [ ] Dashboard: build info, tickets, art panels stack vertically instead of grid when narrow
-- [ ] Station: sector map uses available width; card detail overlays instead of side panel
-- [ ] Agents tab: agent list and config use full content width
-- [ ] Skills tab: skill cards reflow to available width
+- [x] Dashboard: build info, tickets, art panels stack vertically instead of grid when narrow
+- [x] Station: sector map uses available width; card detail overlays instead of side panel
+- [x] Agents tab: agent list and config use full content width
+- [x] Skills tab: skill cards reflow to available width
 
 ### 0.6 Responsive Behavior
 > Handle edge cases for narrow viewports
 
-- [ ] Minimum chat width: 250px (below this, auto-collapse)
-- [ ] Minimum content width: 300px (below this, chat auto-collapses)
-- [ ] When total panel width < 550px: show only one panel at a time with toggle button
-- [ ] Resize handle shows visual feedback on hover/drag (cursor change, highlight line)
+- [x] Minimum chat width: 250px (below this, auto-collapse)
+- [x] Minimum content width: 300px (below this, chat auto-collapses)
+- [x] When total panel width < 550px: show only one panel at a time with toggle button
+- [x] Resize handle shows visual feedback on hover/drag (cursor change, highlight line)
+
+### 0.7 Chat Context Bar (Replaces Persona Status Bar)
+> Repurpose lower persona status bar from navigation to context display
+> **Implementation evolved into Tag Strip** — see Post-V3 Refinement R1
+
+**Original design (Phase 0.7 spec):**
+```
+[🔧 QA Engineer ▼] [📐] [🎨] [📚]  [×]
+```
+
+**Actual implementation (Tag Strip):**
+```
+● QA Engineer  |  Sectors  Asmdef  Build  |  Ready
+  [persona tag]   [skill tags per tab]       [status]
+```
+
+- [x] Remove click-to-navigate behavior from persona dots
+- [x] Replace persona dots with tag strip (`.status-bar.tag-strip`)
+- [x] Persona tag: color dot + label + pin indicator; click opens persona menu
+- [x] Skill tags auto-populate per tab from `TAB_SKILL_MAP` with readable labels
+- [x] `SKILL_LABELS` map translates IDs to display names (`'sector-analysis'` → `"Sectors"`)
+- [x] Status tag shows current state (Ready / Working / Error)
+- [x] Persona dropdown shows all 6 personas — selecting one sets `manualOverride = true`
+- [x] `[×]` unpin button clears manual override, returns to tab-default persona
+- [x] Context bar positioned at top of chat pane
+
+### 0.8 Chat State Store
+> Single source of truth for chat state — survives tab switches
+
+- [x] Create `ChatStore` interface with:
+  - `messages: ChatMessage[]` — full conversation history (via existing chatSessions.ts)
+  - `activePersona: PersonaId` — current persona context
+  - `manualOverride: boolean` — user manually selected persona
+  - `autoSkills: SkillId[]` — tab-derived skills (change on tab switch)
+  - `manualSkills: SkillId[]` — user-added skills (persist across tabs)
+  - `scrollPosition: number` — preserve scroll on tab switch
+- [x] Tab switches update `activePersona` + `autoSkills` WITHOUT re-rendering messages
+- [x] Implement `reconcileContext(newTab)` — updates persona/skills based on tab, respects override
+- [ ] Store persisted to `globalState` for session recovery (deferred — localStorage used for now)
+- [x] Create `src/webview/panel/features/chatStore.ts` — singleton managing chat state
+- [x] Export via `window.chatStore` for access from handlers and webview sync
+
+**Tab → Auto-Skills Mapping:**
+
+| Tab | Default Persona | Auto-Skills |
+|-----|-----------------|-------------|
+| Station | QA Engineer | `sector-analysis`, `asmdef-check`, `build-tools` |
+| Dashboard | QA Engineer | `project-health`, `settings-access` |
+| Agents | Lead Engineer | `agent-management`, `task-delegation` |
+| Skills | Technical Writer | `skill-lookup`, `doc-templates` |
+
+- [x] Define `TAB_SKILL_MAP` constant with above mappings
+- [x] Auto-skills attach on tab enter, detach on tab leave
+- [x] Manual skills (user-added) persist across all tabs
+- [x] Combined skills = `autoSkills ∪ manualSkills` (union, no duplicates)
+
+### 0.9 Quick Access Shortcuts
+> Major features accessible from persistent chat without tab switching
+
+- [x] `/docs` command opens Docs panel in content area (switches to Dashboard > Docs)
+- [x] `/tickets` command opens Tickets panel in content area (switches to Dashboard > Tickets)
+- [x] `/station` command switches to Station tab
+- [x] `/skills` command switches to Skills tab
+- [x] Optional: Add quick-access icon buttons in chat header for Docs, Tickets, Station
+- [x] Commands work regardless of current tab — they switch content area, not chat
+
+**Command Routing:**
+- [x] All `/` commands route through existing skill command system (not a separate namespace)
+- [x] Navigation shortcuts are registered as built-in skills with `type: 'navigation'`
+- [x] Check for conflicts with user-defined skills — built-ins take precedence
+- [x] `/help` lists all available commands (navigation + user skills)
+- [x] Create `BUILTIN_NAV_COMMANDS` in `state.ts` — register `/docs`, `/tickets`, `/station`, `/skills` at startup
+- [x] Precedence order: built-in navigation > user skills > fallback to chat
 
 ---
 
 ## Phase 1: Station Engineer
 > Design reference: [`docs/STATION_ENGINEER_UX_SPEC.md`](STATION_ENGINEER_UX_SPEC.md)
 > Proactive project-aware assistant on Station tab with suggest-only model
+>
+> **Dependency**: CF-8 (Sector Configuration UI) provides sector state that Engineer triggers use. Engineer works without sectors but sector-related triggers (orphan files, violations) require CF-8.
+>
+> **Fallback when sectors unavailable**: Run only doc-staleness, test-failure, policy-change, and undocumented-file triggers. Skip sector-violation and orphan-file triggers. Show "Configure sectors to enable full analysis" hint in UI.
 
 ### 1.1 Core Engine
 > Backend: suggestion generation, scoring, and persistence
 
-- [ ] Create `src/engineer/EngineerTypes.ts` — `Suggestion`, `HistoryEntry`, `EngineerState` interfaces
-- [ ] Create `src/engineer/EngineerScorer.ts` — scoring formula: `(Risk×3) + (Impact×2) + (Urgency×2) - Effort`
-- [ ] Create `src/engineer/EngineerPersistence.ts` — read/write `.spacecode/engineer-state.json`
-- [ ] Create `src/engineer/RuleTriggers.ts` — 6 rule-based triggers (docs stale, tests failing, policy changed, undocumented files, sector violation, orphan files)
-- [ ] Create `src/engineer/EngineerEngine.ts` — orchestrates triggers, scoring, filtering, persistence
-- [ ] Implement 24h dismissal cooldown logic
-- [ ] Implement duplicate rejection and AI suggestion cap (max 3)
+- [x] Create `src/engineer/EngineerTypes.ts` — `Suggestion`, `HistoryEntry`, `EngineerState` interfaces
+- [x] Create `src/engineer/EngineerScorer.ts` — scoring formula: `(Risk×3) + (Impact×2) + (Urgency×2) - Effort`
+- [x] Create `src/engineer/EngineerPersistence.ts` — read/write `.spacecode/engineer-state.json`
+- [x] Create `src/engineer/RuleTriggers.ts` — 6 rule-based triggers (docs stale, tests failing, policy changed, undocumented files, sector violation, orphan files)
+- [x] Create `src/engineer/EngineerEngine.ts` — orchestrates triggers, scoring, filtering, persistence
+- [x] Implement 24h dismissal cooldown logic
+- [x] Implement duplicate rejection and AI suggestion cap (max 3)
+
+**Suggestion Ordering:**
+- [x] Rule-based suggestions always appear first (sorted by score)
+- [x] AI suggestions fill remaining slots (max 3) after rule-based
+- [x] If rule-based count ≥ display limit, AI suggestions are suppressed
+- [x] "Show all" toggle reveals all suggestions regardless of limit
 
 ### 1.2 Message Handler
 > Wire engineer to webview message protocol
 
-- [ ] Create `src/mastercode_port/ui/handlers/engineer.ts`
-- [ ] Handle `engineerAction` — accept/defer/dismiss a suggestion
-- [ ] Handle `engineerDelegate` — route to role (Architect, Verifier, Doc Officer, etc.)
-- [ ] Handle `engineerRefresh` — trigger manual rescan
-- [ ] Send `engineerStatus` on Station tab open
-- [ ] Send `engineerSuggestions` after scan completes
-- [ ] Send `engineerHistory` on request
-- [ ] Wire to autoexecute queue — "Run" actions queue for approval
+- [x] Create `src/mastercode_port/ui/handlers/engineer.ts`
+- [x] Handle `engineerAction` — accept/defer/dismiss a suggestion
+- [x] Handle `engineerDelegate` — route to role (Architect, Verifier, Doc Officer, etc.)
+- [x] Handle `engineerRefresh` — trigger manual rescan
+- [x] Send `engineerStatus` on Station tab open
+- [x] Send `engineerSuggestions` after scan completes
+- [x] Send `engineerHistory` on request
+- [x] Wire to autoexecute queue — "Run" actions queue for approval
+
+**Autoexecute Gate Rules:**
+- [x] If autoexecute is **ON**: "Run" adds to approval queue, executes after user approves
+- [x] If autoexecute is **OFF**: "Run" button is disabled, shows "Enable autoexecute to run"
+- [x] High-risk suggestions (score > 8 or `risk: 'high'`) always require explicit approval even with autoexecute ON
+- [x] Delegation actions (Architect, Verifier, etc.) bypass autoexecute — they're chat context switches, not code execution
 
 ### 1.3 Station Tab UI
 > Engineer Panel in Station tab
 
-- [ ] Status strip in Station header: health indicator + alert count + top action
-- [ ] Ship Status section: warnings list, health trend
-- [ ] Suggestions list: ranked cards with Why / Risk / Confidence / Source / Score
-- [ ] Action buttons per suggestion: Run / Open / Defer / Dismiss
-- [ ] Delegations section: 6 role buttons (Architect, Modularity Lead, Verifier, Doc Officer, Planner, Release Captain)
-- [ ] History section: past 20 decisions with timestamps
-- [ ] "Show all" toggle for low-score suggestions (< 5)
+- [x] Status strip in Station header: health indicator + alert count + top action
+- [x] Ship Status section: warnings list, health trend
+- [x] Suggestions list: ranked cards with Why / Risk / Confidence / Source / Score
+- [x] Action buttons per suggestion: Run / Open / Defer / Dismiss
+- [x] Delegations section: 6 role buttons (Architect, Modularity Lead, Verifier, Doc Officer, Planner, Release Captain)
+- [x] History section: past 20 decisions with timestamps
+- [x] "Show all" toggle for low-score suggestions (< 5)
 
 ### 1.4 Contextual Inline Prompts
 > Non-blocking notifications
 
-- [ ] Send `engineerPrompt` for critical/warning items when relevant context is active
-- [ ] Render as dismissible notification bar in webview
-- [ ] Suppress after dismiss (24h cooldown)
+- [x] Send `engineerPrompt` for critical/warning items when relevant context is active
+- [x] Render as dismissible notification bar in webview
+- [x] Suppress after dismiss (24h cooldown)
 
 ### 1.5 AI-Driven Suggestions (Optional)
-> AI analysis layered on top of rule-based triggers
+> AI analysis layered on top of rule-based triggers — **deferred to Phase 1.5**
 
-- [ ] Structured prompt for Gears persona to analyze project state
+- [ ] Structured prompt for QA Engineer persona to analyze project state
 - [ ] Parse JSON response into `Suggestion[]`
 - [ ] Label AI suggestions with `source: 'ai'`
 - [ ] Trigger on: Station tab open, manual refresh, significant git activity
@@ -220,49 +333,60 @@
 ### 2.1 Semgrep CLI Wrapper
 > Core infrastructure for running Semgrep
 
-- [ ] Create `src/security/SemgrepRunner.ts` — spawn `semgrep --json`, parse output
-- [ ] Create `src/security/SemgrepTypes.ts` — `Finding`, `SemgrepResult`, severity types
-- [ ] Create `src/security/SemgrepRules.ts` — manage rule configs (built-in + custom)
-- [ ] Implement `checkInstalled()` — detect if Semgrep CLI is available
-- [ ] Show install banner in Security tab if not found: "Install with: `brew install semgrep`"
+- [x] Create `src/security/SemgrepRunner.ts` — spawn `semgrep --json`, parse output
+- [x] Create `src/security/SemgrepTypes.ts` — `Finding`, `SemgrepResult`, severity types
+- [x] Create `src/security/SemgrepRules.ts` — manage rule configs (built-in + custom), 6 scan profiles
+- [x] Implement `checkInstalled()` — detect if Semgrep CLI is available (common paths, expanded PATH)
+- [x] Show Semgrep mode indicator in scan results (`semgrepMode` field)
+
+**Offline/Fallback Mode:**
+- [x] When Semgrep not installed → mode returns `'unavailable'`, regex scanners run as full fallback
+- [x] Fallback to existing regex-based scanners (`SecurityScanner.ts`, `SecretScanner.ts`, etc.)
+- [x] Semgrep mode sent with every scan result for UI indicator
+- [x] `resetInstallCache()` for re-checking after install
+- [x] `securitySemgrepStatus` message returns profiles, custom rules, install status
 
 ### 2.2 Security Tab Enhancement
 > Upgrade existing Security tab with Semgrep-backed scanning
 
-- [ ] Wire `SemgrepRunner.scan()` to "Run Security Scan" button
-- [ ] Use built-in rulesets: `p/security-audit`, `p/secrets`, `p/owasp-top-ten`
-- [ ] Parse JSON results → existing `Finding[]` format
-- [ ] Map Semgrep severity (ERROR/WARNING/INFO) to existing severity display
-- [ ] Add CWE + OWASP metadata to finding details
-- [ ] Add Semgrep autofix suggestions to "Fix with Engineer" handoff
-- [ ] Keep existing regex scanners as fallback when Semgrep not installed
+- [x] Wire `SemgrepRunner.scan()` as primary engine in `SecurityScanner.scan()`
+- [x] Use built-in rulesets: `p/security-audit`, `p/secrets`, `p/owasp-top-ten`
+- [x] Parse JSON results → existing `SecurityFinding[]` format (full field mapping)
+- [x] Map Semgrep severity (ERROR/WARNING/INFO) to existing severity display
+- [x] Add CWE + OWASP metadata to finding details
+- [x] Add Semgrep autofix suggestions (`fix` field mapped to `suggestedFix`)
+- [x] Keep existing regex scanners as fallback when Semgrep not installed
+- [x] Deduplication: regex findings that overlap Semgrep findings are filtered
+- [x] Profile-based scanning via `securityScanWithProfile` message
+- [x] 6 scan profiles: security-full, security-quick, quality, supply-chain, unity, pentest
 
 ### 2.3 Custom Unity Rules
 > Game-dev specific YAML rules
 
-- [ ] Create `media/semgrep-rules/unity-performance.yml` — Find() in Update, allocations in loops
-- [ ] Create `media/semgrep-rules/unity-null-safety.yml` — missing null checks after GetComponent
-- [ ] Create `media/semgrep-rules/csharp-security.yml` — hardcoded secrets, SQL injection in .NET
-- [ ] Create `media/semgrep-rules/typescript-security.yml` — XSS, command injection
-- [ ] Copy bundled rules to `.spacecode/rules/` on first run
-- [ ] Include custom rules in scan config alongside built-in rulesets
+- [x] Create `media/semgrep-rules/unity-performance.yaml` — Find/GetComponent in Update, allocations, Camera.main, tag comparison, SendMessage
+- [x] Create `media/semgrep-rules/unity-null-safety.yaml` — unchecked GetComponent, destroyed object access, coroutine null checks, singleton null
+- [x] Create `media/semgrep-rules/csharp-security.yaml` — SQL injection, path traversal, command injection, weak crypto, hardcoded credentials, insecure deserialization, HTTP no TLS
+- [x] Create `media/semgrep-rules/typescript-security.yaml` — eval, innerHTML XSS, command injection, path traversal, hardcoded secrets, prototype pollution, regex DoS, insecure random
+- [x] Create `media/semgrep-rules/code-quality.yaml` — unused promises, console.log, TODO/FIXME, empty catch, any type, Debug.Log, magic numbers, nested ternary
+- [x] Custom rules auto-discovered from `media/semgrep-rules/` and `.spacecode/semgrep-rules/`
+- [x] Include custom rules in scan config alongside built-in rulesets
 
 ### 2.4 Code Quality Tab Enhancement
 > Use Semgrep for pattern-based quality checks
 
-- [ ] Wire Semgrep for magic number/hardcoded string detection (replace existing regex)
-- [ ] Wire Semgrep for dead code pattern detection
-- [ ] Add circular dependency detection via `madge` CLI wrapper (JS/TS)
-- [ ] Add unused imports detection
-- [ ] Keep existing `ComplexityAnalyzer`, `DuplicationScanner` for metrics Semgrep can't do
+- [x] Wire Semgrep quality profile alongside existing regex scanners
+- [x] Semgrep quality findings sent as `semgrepFindings` in quality scan result
+- [x] Keep existing `ComplexityAnalyzer`, `DuplicationScanner`, `MagicValueScanner`, `DeadCodeScanner` for metrics Semgrep can't do
+- [ ] Add circular dependency detection via `madge` CLI wrapper (deferred — JS/TS specific)
 
 ### 2.5 Dependency CVE Scanning
 > Semgrep Supply Chain for vulnerability detection
 
-- [ ] Wire `semgrep --supply-chain` for npm (`package-lock.json`)
-- [ ] Wire for NuGet (`.csproj` / `packages.config`)
-- [ ] Display CVE results in Security tab with severity + advisory links
-- [ ] Group by package name with upgrade recommendations
+- [x] Wire `semgrep --supply-chain` via `supply-chain` scan profile
+- [x] `securitySupplyChainScan` message handler
+- [x] Supply chain profile configured with `p/supply-chain` ruleset
+- [ ] Display dedicated CVE results UI in Security tab (deferred — uses standard findings display for now)
+- [ ] Group by package name with upgrade recommendations (deferred)
 
 ---
 
@@ -273,42 +397,49 @@
 ### 3.1 Core Engine (Phase A from design doc)
 > Minimal viable autopilot loop
 
-- [ ] Create `src/autopilot/AutopilotTypes.ts` — `AutopilotStatus`, `AutopilotState`, `AutopilotConfig`, `StepResult`
-- [ ] Create `src/autopilot/AutopilotEngine.ts` — main loop with state machine (idle → running → pausing → paused → stopping)
-- [ ] Implement pause check (poll 200ms while paused)
-- [ ] Wire to `PlanExecutor.executeSingleStep()` for step execution
-- [ ] Emit events: `autopilot:started`, `autopilot:step-start`, `autopilot:step-complete`, `autopilot:complete`
-- [ ] Add message handlers: `autopilotStart`, `autopilotPause`, `autopilotResume`, `autopilotAbort`
-- [ ] Send `autopilotStatus` updates to webview
+- [x] Create `src/autopilot/AutopilotTypes.ts` — `AutopilotStatus`, `AutopilotState`, `AutopilotConfig`, `StepResult`
+- [x] Create `src/autopilot/AutopilotEngine.ts` — main loop with state machine (idle → running → pausing → paused → stopping)
+- [x] Implement pause check (poll 200ms while paused)
+- [x] Wire to `PlanExecutor.executeSingleStep()` for step execution
+- [x] Emit events: `autopilot:started`, `autopilot:step-start`, `autopilot:step-complete`, `autopilot:complete`
+- [x] Add message handlers: `autopilotStart`, `autopilotPause`, `autopilotResume`, `autopilotAbort`
+- [x] Send `autopilotStatus` updates to webview
 
 ### 3.2 Error Handling (Phase B from design doc)
 > Resilience: retry, skip, abort, rate limiting
 
-- [ ] Create `src/autopilot/ErrorStrategy.ts` — retry with exponential backoff (2s × 2^n)
-- [ ] Implement skip strategy (mark step skipped, continue)
-- [ ] Implement abort strategy (stop on failure)
-- [ ] Create `src/autopilot/RateLimitDetector.ts` — regex patterns for 429, rate limit, quota exceeded
-- [ ] Implement agent fallback: claude → gpt on rate limit
-- [ ] Implement primary agent recovery between steps
-- [ ] Wire sound events: `aiComplete` per step, `aiError` on fail, `workflowDone` on complete, `sectorViolation` on all-agents-limited
+- [x] Create `src/autopilot/ErrorStrategy.ts` — retry with exponential backoff (2s × 2^n)
+- [x] Implement skip strategy (mark step skipped, continue)
+- [x] Implement abort strategy (stop on failure)
+- [x] Create `src/autopilot/RateLimitDetector.ts` — regex patterns for 429, rate limit, quota exceeded
+- [x] Implement agent fallback: claude → gpt on rate limit
+- [x] Implement primary agent recovery between steps
+- [x] Wire sound events: `aiComplete` per step, `aiError` on fail, `workflowDone` on complete, `sectorViolation` on all-agents-limited
 
 ### 3.3 Session Persistence (Phase C from design doc)
 > Survive restarts and crashes
 
-- [ ] Create `src/autopilot/AutopilotSession.ts` — file-based session state (`.spacecode/autopilot-session.json`)
-- [ ] Write session state after each step completion
-- [ ] On extension activation: check for interrupted session
-- [ ] "Resume interrupted session?" prompt in webview
-- [ ] Session includes: planId, current phase/step index, completed/failed/skipped counts, active agent, config
+- [x] Create `src/autopilot/AutopilotSession.ts` — file-based session state (`.spacecode/autopilot-session.json`)
+- [x] Write session state after each step completion
+- [x] On extension activation: check for interrupted session
+- [x] "Resume interrupted session?" prompt in webview
+- [x] Session includes: planId, current phase/step index, completed/failed/skipped counts, active agent, config
 
 ### 3.4 Autopilot UI (Phase D from design doc)
 > Control bar and configuration
 
-- [ ] Autopilot control bar in webview: status, step counter, pause/stop buttons, agent indicator
-- [ ] Autopilot config section in Dashboard Settings: primary agent, fallback agent, error strategy, retry count, step delay
-- [ ] Autopilot as third plan execution mode (alongside Manual and Step-by-Step)
-- [ ] Respect autoexecute gate: if OFF, autopilot start queued for approval
-- [ ] Context compaction between phases for long plans
+- [x] Autopilot control bar in webview: status, step counter, pause/stop buttons, agent indicator
+- [x] Autopilot config section in Dashboard Settings: primary agent, fallback agent, error strategy, retry count, step delay
+- [x] Autopilot as third plan execution mode (alongside Manual and Step-by-Step)
+- [x] Respect autoexecute gate: if OFF, autopilot start queued for approval
+- [x] Context compaction between phases for long plans
+
+**Autoexecute Gate Behavior:**
+- [x] If autoexecute is **ON**: Autopilot runs freely, each step executes automatically
+- [x] If autoexecute is **OFF**: Autopilot start request goes to approval queue
+- [x] Once approved, autopilot runs until completion (no per-step approval needed)
+- [x] User can pause/abort anytime regardless of autoexecute setting
+- [x] Show "Autopilot queued — awaiting approval" status when blocked by gate
 
 ---
 
@@ -316,12 +447,24 @@
 > Design reference: [`docs/GAME_UI_COMPONENT_CATALOG.md`](GAME_UI_COMPONENT_CATALOG.md)
 > Build game UI via Coplay MCP with placeholders, then swap with NanoBanana art
 
+### 4.0 Pipeline Infrastructure (SpaceCode Extension)
+> Types, engine, handler, frontend for orchestrating UI generation
+
+- [x] Create `src/gameui/GameUITypes.ts` — component catalog (150+ components), theme types, pipeline state
+- [x] Create `src/gameui/GameUIPipeline.ts` — pipeline engine with phase execution, placeholder generation, USS generation, state persistence
+- [x] Create `src/gameui/index.ts` — barrel exports
+- [x] Create `src/mastercode_port/ui/handlers/gameui.ts` — 12 message handlers for pipeline control
+- [x] Create `src/webview/panel/features/gameui.ts` — frontend render + action handlers
+- [x] Add Game UI tab to Station control tabs
+- [x] Wire messageRouter cases for gameuiState, gameuiCatalog, gameuiPipelineEvent, gameuiThemes, etc.
+- [x] Add Game UI CSS styles to panel.css
+
 ### 4.1 Theme System
 > USS-based theming for Unity UI Toolkit
 
+- [x] Define theme variable categories: brand, surface, text, feedback, rarity, bars, typography, spacing, borders, component sizes
 - [ ] Create default theme USS file (`Assets/UI/Themes/DefaultTheme.uss`) with all variables from catalog
 - [ ] Create `ThemeManager.cs` — runtime theme switching via USS swap
-- [ ] Define theme variable categories: brand, surface, text, feedback, rarity, bars, typography, spacing, borders, component sizes
 - [ ] Store theme preference in PlayerPrefs
 - [ ] Create at least one alternate theme (e.g., light theme)
 
@@ -389,21 +532,58 @@
 ---
 
 ## Phase 5: Role System Upgrade
-> Align internal persona system with Station Engineer's role names
+> Replace fantasy persona names with real job titles that users understand
 
-### 5.1 Role Definitions
-> Map the 6 delegated roles to prompts and routing
+### 5.0 Base Persona Rename
+> "Nova what is it? means nothing." — Use real role names everywhere.
 
-- [ ] Define role → persona routing map (implementation code, not UI-visible)
-- [ ] Create role-specific system prompts for: Architect, Modularity Lead, Verifier, Doc Officer, Planner, Release Captain
-- [ ] Each role prompt scopes the persona to the role's responsibility (e.g., Architect = Nova but focused on architecture only)
+**Old → New Mapping:**
+
+| Old Name | New Name | Role Description |
+|----------|----------|------------------|
+| Nova | **Lead Engineer** | Primary coding agent — features, architecture, code review |
+| Gears | **QA Engineer** | Quality specialist — debugging, testing, security, maintenance |
+| Index | **Technical Writer** | Documentation specialist — GDD, SA, TDD, doc sync |
+| Triage | **Issue Triager** | Ticket routing — analyze issues, assign to appropriate role |
+| Vault | **Database Engineer** | Data specialist — schema, queries, migrations, API design |
+| Palette | **Art Director** | Visual design — style guides, assets, UI/UX, image generation |
+
+**Implementation checklist:**
+
+- [x] Rename `AgentId` type: `nova` → `lead-engineer`, `gears` → `qa-engineer`, etc.
+- [x] Rename prompt files: `nova.system.md` → `lead-engineer.system.md`, etc.
+- [x] Update `PromptLoader.ts` fallback strings with new names
+- [x] Update `PersonaRouter.ts` to use new IDs
+- [x] Update all UI labels in `mainPanelHtml.ts` and `panel.js`
+- [x] Update `settingsPanel.ts` persona dropdown (persona selector is in chatContextBar HTML — already uses new names)
+- [x] Update chat header persona display
+- [x] Update persona auto-switching mapping (tab → persona)
+- [x] Update `agents/definitions.ts` persona definitions
+- [x] Update all `messageRouter.ts` references
+- [x] Search & replace all `'nova'` / `'gears'` / etc. string literals across codebase
+- [x] Update documentation (V3 checklist, any design docs)
+
+### 5.1 Delegated Role Definitions
+> Scoped sub-roles for Station Engineer delegation (these scope the base personas)
+
+| Delegated Role | Base Persona | Scope |
+|----------------|--------------|-------|
+| Architect | Lead Engineer | Architecture decisions only |
+| Modularity Lead | Lead Engineer | Module boundaries & dependencies |
+| Verifier | QA Engineer | Verification & testing only |
+| Doc Officer | Technical Writer | Same as base (documentation) |
+| Planner | Lead Engineer | Planning & task breakdown |
+| Release Captain | Lead Engineer | Release prep & checklist |
+
+- [x] Create role-specific system prompts that scope the base persona
+- [x] Each prompt inherits base persona capabilities but focuses on role's responsibility
 
 ### 5.2 Role Delegation UI
-> Station Engineer delegates to roles
+> Station Engineer delegates to scoped roles
 
-- [ ] Role buttons in Station Engineer panel trigger persona switch with role-scoped prompt
-- [ ] Show active role name in chat header when delegated (e.g., "Architect" not "Nova")
-- [ ] Return to Station Engineer view when delegation completes
+- [x] Role buttons in Station Engineer panel trigger persona switch with role-scoped prompt
+- [x] Show delegated role name in chat header (e.g., "Architect" not "Lead Engineer")
+- [x] Return to Station Engineer view when delegation completes
 
 ---
 
@@ -412,23 +592,23 @@
 ### 6.1 Project DB Panel
 > Dashboard database integration (from V2 Phase 8.3)
 
-- [ ] Database connection wizard
-- [ ] Provider support: Supabase, Firebase, PostgreSQL, MySQL, SQLite, MongoDB
-- [ ] Schema viewer, query builder, migration generator, type generation
+- [x] Database connection wizard
+- [x] Provider support: Supabase, Firebase, PostgreSQL, MySQL, SQLite, MongoDB
+- [x] Schema viewer, query builder, migration generator, type generation
 
 ### 6.2 Semantic Search UI
 > From V2 Phase 9.2
 
-- [ ] "Search previous chats" feature — search bar in chat header
-- [ ] Display results with relevance score, source chat, timestamp
-- [ ] Click result → load full chat context
+- [x] "Search previous chats" feature — search bar in chat header
+- [x] Display results with relevance score, source chat, timestamp
+- [x] Click result → load full chat context
 
 ### 6.3 Build Pipeline Integration
 > Wire build success/failure events
 
-- [ ] Detect build results from Unity Editor (via MCP `check_compile_errors`)
-- [ ] Wire `buildSuccess` / `buildFail` sound events
-- [ ] Station Engineer: auto-suggest on build failure
+- [x] Detect build results from Unity Editor (via MCP `check_compile_errors`)
+- [x] Wire `buildSuccess` / `buildFail` sound events
+- [x] Station Engineer: auto-suggest on build failure
 
 ---
 
@@ -669,13 +849,13 @@ ZAP proxy mode for sniffing and modifying traffic:
 ```
 
 **Checklist**:
-- [ ] Add "Comms" sub-tab to Station → Control mode (after Unity)
-- [ ] Create `src/webview/panel/features/comms.ts`
-- [ ] Create `src/mastercode_port/ui/handlers/comms.ts`
-- [ ] Tier selector (1/2/3) with connection status
-- [ ] Recent scans list with severity summary
-- [ ] Scan results detail view
-- [ ] Scan history persistence
+- [x] Add "Comms" sub-tab to Station → Control mode (after Unity)
+- [x] Create `src/webview/panel/features/comms.ts`
+- [x] Create `src/mastercode_port/ui/handlers/comms.ts`
+- [x] Tier selector (1/2/3) with connection status
+- [x] Recent scans list with severity summary
+- [x] Scan results detail view
+- [x] Scan history persistence (`.spacecode/comms-scans.json`)
 
 ### 7.9 Finding Investigation Flow
 
@@ -702,8 +882,8 @@ Provide:
 ```
 
 **Checklist**:
-- [ ] "Investigate →" button on each finding
-- [ ] "Generate Fix" button on each finding
+- [x] "Investigate →" button on each finding
+- [x] "Generate Fix" button on each finding
 - [ ] "Re-scan" button on each finding
 - [ ] Chat generates PoC, remediation code, follow-up suggestions
 
@@ -835,13 +1015,13 @@ The **Ops Array** handles infrastructure management — deploying game servers, 
 
 ### 8.2 Server Connection Management
 
-- [ ] Create `src/ops/OpsTypes.ts` — `Server`, `ServerStatus`, `OpsState`
-- [ ] Create `src/ops/ServerManager.ts` — manage server connections
-- [ ] Persist server list in `.spacecode/ops-servers.json`
-- [ ] Quick action: "Add Server" → configure SSH connection
-- [ ] Quick action: "Test Connection" → `test_ssh_connection`
-- [ ] Quick action: "Remove Server" → remove from list
-- [ ] Server health indicators (online/offline/degraded)
+- [x] Create `src/ops/OpsTypes.ts` — `Server`, `ServerStatus`, `OpsState`
+- [x] Create `src/ops/OpsManager.ts` — manage server connections
+- [x] Persist server list in `.spacecode/ops-servers.json`
+- [x] Quick action: "Add Server" → configure SSH connection
+- [x] Quick action: "Test Connection" → `test_ssh_connection`
+- [x] Quick action: "Remove Server" → remove from list
+- [x] Server health indicators (online/offline/degraded)
 
 ### 8.3 SSH Operations
 
@@ -1051,14 +1231,14 @@ systemctl start game-server
 ```
 
 **Checklist**:
-- [ ] Add "Ops" sub-tab to Station → Control mode (after Comms)
-- [ ] Create `src/webview/panel/features/ops.ts`
-- [ ] Create `src/mastercode_port/ui/handlers/ops.ts`
-- [ ] Server list panel with health indicators
-- [ ] Security panel with hardening status
-- [ ] Deploy panel with one-click actions
-- [ ] Quick actions bar
-- [ ] Recent operations log
+- [x] Add "Infra" sub-tab to Station → Control mode (after Comms)
+- [x] Create `src/webview/panel/features/ops.ts`
+- [x] Create `src/mastercode_port/ui/handlers/ops.ts`
+- [x] Server list panel with health indicators
+- [x] Security panel with hardening status
+- [x] Deploy panel with one-click actions
+- [x] Command execution panel
+- [x] Recent operations log
 
 ### 8.9 Message Protocol
 
@@ -1260,25 +1440,25 @@ const editor = await Editor.make()
 ### 9.4 Features
 
 **Core editing**:
-- [ ] Headers render as large text, reveal `#` on cursor
-- [ ] Bold/italic render styled, reveal `**`/`*` on cursor
-- [ ] Links render clickable, reveal `[text](url)` on cursor
-- [ ] Code blocks render with syntax highlighting
-- [ ] Tables render as formatted tables
-- [ ] Lists render with bullets/numbers
-- [ ] Checkboxes render as clickable checkboxes
+- [x] Headers render as large text, reveal `#` on cursor
+- [x] Bold/italic render styled, reveal `**`/`*` on cursor
+- [x] Links render clickable, reveal `[text](url)` on cursor
+- [x] Code blocks render with syntax highlighting
+- [x] Tables render as formatted tables
+- [x] Lists render with bullets/numbers
+- [x] Checkboxes render as clickable checkboxes
 
 **Obsidian-style behavior**:
-- [ ] Click anywhere to place cursor and edit
-- [ ] Cursor line shows raw markdown
-- [ ] Adjacent lines remain formatted
+- [x] Click anywhere to place cursor and edit (double-click enters source mode)
+- [x] Source mode shows raw markdown, Escape returns to preview
+- [ ] Per-line cursor reveal (deferred — requires ProseMirror/Milkdown)
 - [ ] Smooth transition animation (optional)
 
 **SpaceCode integration**:
-- [ ] Works in SpaceCode panel (embedded) or standalone editor
-- [ ] Syncs with VS Code document model (undo/redo works)
-- [ ] File saves work normally (Cmd+S)
-- [ ] Git integration unchanged
+- [x] Works as standalone custom editor for .md files
+- [x] Syncs with VS Code document model (undo/redo works)
+- [x] File saves work normally (Cmd+S)
+- [x] Git integration unchanged
 
 ### 9.5 Markdown Extensions
 
@@ -1312,22 +1492,22 @@ Floating toolbar on text selection:
 ```
 
 **Checklist**:
-- [ ] Selection-triggered floating toolbar
-- [ ] Bold, italic, strikethrough, code buttons
-- [ ] Link insertion dialog
-- [ ] Header level buttons
-- [ ] List type buttons (bullet, numbered, checkbox)
-- [ ] Keyboard shortcuts (Cmd+B, Cmd+I, etc.)
+- [x] Persistent top toolbar (always visible)
+- [x] Bold, italic, strikethrough, code buttons
+- [x] Link insertion
+- [x] Header level buttons (H1, H2, H3)
+- [x] List type buttons (bullet, numbered, checkbox)
+- [x] Keyboard shortcuts (Cmd+B, Cmd+I, Cmd+E toggle)
 
 ### 9.7 Implementation Checklist
 
 **Phase A: Core Editor**
-- [ ] Create `src/editors/MarkdownEditorProvider.ts`
-- [ ] Register custom editor in `package.json`
-- [ ] Install Milkdown: `npm install @milkdown/core @milkdown/preset-commonmark @milkdown/preset-gfm`
-- [ ] Create webview HTML with Milkdown initialization
-- [ ] Bidirectional sync: webview ↔ VS Code document
-- [ ] Basic styling (light/dark theme support)
+- [x] Create `src/editors/MarkdownEditorProvider.ts`
+- [x] Register custom editor in `package.json`
+- [x] Lightweight built-in markdown renderer (no external dependencies)
+- [x] Create webview HTML with preview + source mode
+- [x] Bidirectional sync: webview ↔ VS Code document
+- [x] Basic styling (light/dark theme support via VS Code CSS variables)
 
 **Phase B: Obsidian-style Cursor**
 - [ ] Install cursor plugin: `npm install @milkdown/plugin-cursor`
@@ -1428,6 +1608,170 @@ The webview renders the markdown using the same Milkdown editor, but in read-onl
 
 ---
 
+## Post-V3 Refinements
+> Changes made after initial V3 phases were complete, before V4 begins.
+> These refine Phase 0 UX, establish modular architecture, and fix integration issues.
+
+### R1. Tag Strip Status Bar (Phase 0.7 Evolution)
+> Commit: `669c184` — Settings overlay, model cards, API consolidation, V3 UX planning
+> Phase 0.7 specified persona dropdown + skill icons. Implementation evolved into a tag-based status bar.
+
+**What shipped:**
+- Status bar redesigned from persona dots to a horizontal tag strip
+- Four tag types: persona (clickable, color-coded), skill (auto per tab), skin (context docs), status (ready/working/error)
+- Persona tag shows color dot + label + pin indicator; click opens persona menu
+- Skill tags auto-populated from `TAB_SKILL_MAP` with readable labels via `SKILL_LABELS` map
+- Cursor pointer fixed on clickable tags (`.tag-persona { cursor: pointer }`)
+
+**Checklist:**
+- [x] Tag strip HTML in `mainPanelHtml.ts` (`.status-bar.tag-strip` with `#tagPersona`, `#tagSkills`, `#tagSkins`, `#tagStatus`)
+- [x] Persona tag: color dot, label, pin/unpin, click-to-switch persona menu
+- [x] Skill tags auto-populate per tab from `TAB_SKILL_MAP`
+- [x] `SKILL_LABELS` map in `index.ts` for readable tag text (`'sector-analysis'` → `"Sectors"`, `'asmdef-check'` → `"Asmdef"`, etc.)
+- [x] Tag CSS in `panel.css`: `.tag`, `.tag-persona`, `.tag-skill`, `.tag-skin`, `.tag-status` (lines 3092–3165)
+- [x] Cursor pointer on `.tag-persona`, hover states with color transitions
+- [x] `updateContextBar()` in `index.ts` reconciles persona/skills/skins on every tab switch
+
+### R2. Per-Tab Right Panel Mode System
+> Commit: `7036fe7` — Phase 1.1 right panel mode separation
+
+**What shipped:**
+- Each tab has its own valid panel modes and default mode
+- Mode persisted per tab via localStorage
+- Mode buttons scoped by `data-tab-scope` attribute (only visible on matching tab)
+- Flow panel accessible from both CHAT and STATION tabs
+
+**Checklist:**
+- [x] `TAB_PANEL_MODES` in `state.ts`: CHAT → `['flow', 'chat', 'planning']`, STATION → `['station', 'control', 'flow', 'planning']`
+- [x] `TAB_DEFAULT_MODE` in `state.ts`: CHAT → `'flow'`, STATION → `'station'`
+- [x] `createRightPanelHandlers(deps)` factory in `features/rightPanel.ts`
+- [x] `restoreRightPanelModeForTab()` replaces hardcoded mode assignments
+- [x] `updatePanelToggleButtons()` shows/hides buttons per active tab
+- [x] Mode persisted to localStorage per tab key
+
+### R3. 50/50 Split Layout
+> Commit: `209ad79` — Add 50/50 split layout for Chat + Synthesis/Swarm panels
+
+**What shipped:**
+- Chat panel (left) + content panel (right) in 50/50 horizontal split
+- Right panel shows context flow visualization (Solo mode) or swarm workers (Swarm mode)
+- CSS controls visibility via `data-panel-mode` attribute
+- D3 constellation visualization moved to right pane
+
+**Checklist:**
+- [x] Two-column layout: chat (left) + content area (right)
+- [x] Solo mode shows Context Flow visualization in right pane
+- [x] Panel mode attribute controls right pane content visibility
+- [x] D3 context flow canvas (`#contextFlowCanvas`) in right pane
+
+### R4. Flow Panel Fix
+> Commit: `1095e9a` — GPT flow visualization fix, module scaffolding, dashboard enhancements
+
+**What shipped:**
+- Flow visualization was broken by GPT consultation flow killing the constellation prematurely
+- Fixed with `_gptFlowPending` flag to prevent premature teardown
+- Flow re-initialized on mode switch: `setTimeout(() => initContextFlowVisualization(), 50)`
+
+**Checklist:**
+- [x] Fixed GPT consultation flow killing constellation with `_gptFlowPending` flag
+- [x] Flow re-init on mode switch to `'flow'`
+- [x] Flow listed in `TAB_PANEL_MODES` for both CHAT and STATION tabs
+
+### R5. Webview Module Scaffolding
+> Commit: `669c184` — Module architecture split from monolithic files
+
+**What shipped:**
+- Webview panel code organized into `state.ts` (config), `features/*` (42 modules), `ipc/*` (routing), `utils/*`
+- Extension-side handlers split from monolithic `mainPanel.ts` into `handlers/*` (33 modules)
+- Message routing modularized: `mainPanelRouter.ts` (extension-side) + `messageRouter.ts` (webview-side)
+
+**New core files:**
+
+| File | Purpose |
+|------|---------|
+| `src/webview/panel/state.ts` | TABS, CHAT_MODES, TAB_PANEL_MODES, TAB_DEFAULT_MODE, TAB_SKILL_MAP, PERSONA_MAP, BUILTIN_NAV_COMMANDS, uiState |
+| `src/webview/panel/features/chatStore.ts` | ChatStore singleton, PERSONA_COLORS, PERSONA_LABELS, subscriber pattern |
+| `src/webview/panel/features/rightPanel.ts` | `createRightPanelHandlers()`, mode management |
+| `src/webview/panel/features/chatMode.ts` | `createChatModeHandlers()`, solo/planning mode switching |
+| `src/webview/panel/ipc/messageRouter.ts` | Webview-side message dispatch (all inbound `postMessage` handling) |
+| `src/mastercode_port/ui/mainPanelRouter.ts` | Extension-side message dispatch |
+| `src/mastercode_port/ui/mainPanelTypes.ts` | Shared message types between extension and webview |
+
+**Handler modules (33 in `src/mastercode_port/ui/handlers/`):**
+
+| Handler | Domain |
+|---------|--------|
+| `agentSkills.ts`, `assistant.ts`, `handoff.ts`, `sensei.ts` | Agent/skill management |
+| `asmdef.ts`, `ship.ts`, `shipActions.ts` | Sector/station |
+| `autopilot.ts`, `autoexecute.ts`, `autosolve.ts` | Automation |
+| `comms.ts`, `security.ts`, `quality.ts`, `diagnostics.ts` | Security/quality |
+| `engineer.ts` | Station Engineer |
+| `ops.ts`, `unity.ts`, `gameui.ts` | Operations/game |
+| `dashboard.ts`, `settings.ts`, `explorer.ts` | Dashboard/settings |
+| `docs.ts`, `db.ts`, `tickets.ts`, `kb.ts` | Content management |
+| `plans.ts`, `planning.ts`, `workflows.ts` | Planning/execution |
+| `git.ts`, `mcp.ts`, `memory.ts`, `voice.ts`, `misc.ts` | Infrastructure |
+
+**Feature modules (42 in `src/webview/panel/features/`):**
+
+| Category | Modules |
+|----------|---------|
+| Chat | `chatInput.ts`, `chatRenderer.ts`, `chatSessions.ts`, `chatStore.ts`, `chatMode.ts`, `chatSearch.ts`, `chatTools.ts` |
+| Station | `station.ts`, `engineer.ts`, `sectorMap.ts`, `controlTabs.ts`, `asmdef.ts` |
+| Security | `comms.ts`, `diagnostics.ts` |
+| Ops | `ops.ts` |
+| Agents | `agents.ts`, `skills.ts` |
+| Dashboard | `dashboard.ts`, `dashboardStats.ts`, `db.ts`, `tickets.ts`, `ticketsSidebar.ts` |
+| Planning | `planningPanel.ts`, `plans.ts`, `autopilot.ts` |
+| Visualization | `flow.ts`, `kb.ts`, `mcp.ts` |
+| UI Infrastructure | `tabs.ts`, `splitter.ts`, `rightPanel.ts`, `modelToolbar.ts`, `settingsPanel.ts`, `tokenBar.ts` |
+| Game | `gameui.ts`, `unityPanel.ts`, `verificationPanel.ts` |
+| Misc | `autoexecute.ts`, `contextPreview.ts`, `docTargets.ts`, `sideChat.ts`, `voice.ts` |
+
+### R6. Settings Overlay
+> Commit: `669c184` — Settings moved from Dashboard subtab to full-screen overlay
+
+**What shipped:**
+- Settings now opens as full-screen overlay (⚙️ button) instead of Dashboard subtab
+- Model cards redesigned with visual context/output comparison bars
+- API keys consolidated to VS Code SecretStorage (migrated from plain config)
+- Settings export/import to `.spacecode/backups/`
+
+**Checklist:**
+- [x] Settings overlay UI in `features/settingsPanel.ts`
+- [x] Model cards with visual bars for context window and max output
+- [x] `ModelVerificationService` — verify API access to models
+- [x] API key SecretStorage migration (from `spacecode.claudeApiKey` config to `SecretStorage`)
+- [x] Settings export/import to `.spacecode/backups/`
+- [x] Extension-side handler in `handlers/settings.ts`
+
+---
+
+## V3 → V4 Transition Notes
+
+> Current state of key files at V3 completion. These are V4's starting point.
+
+**Tab structure (pre-V4):**
+`[Station] [Agents] [Skills] [Dashboard]` + persistent Chat
+
+**Station right-panel modes (pre-V4):**
+`['station', 'control', 'flow', 'planning']`
+
+**Chat right-panel modes (pre-V4):**
+`['flow', 'chat', 'planning']`
+
+**CHAT default mode:** `'flow'` — V4 Phase 13 will remove Flow and replace with Telemetry.
+
+**Files V4 Phase A will modify first:**
+| File | V4 Action | Why |
+|------|-----------|-----|
+| `src/webview/panel/ipc/messageRouter.ts` | Enforce typed message schema (A1) | Currently uses bare string matching |
+| `src/webview/panel/index.ts` | Split into bootstrap + router + bridge (A7) | 72KB, 2100+ lines |
+| `src/webview/panel/state.ts` | Remove `'flow'` from TAB_PANEL_MODES (Phase 13) | Flow replaced by Telemetry |
+| `src/webview/panel/features/flow.ts` | Delete or empty (Phase 13) | 58KB of D3 visualization replaced by signal log |
+
+---
+
 ## Design Documents
 
 | Document | Purpose |
@@ -1439,14 +1783,14 @@ The webview renders the markdown using the same Milkdown editor, but in read-onl
 
 > **Note**: Comms Array, Ops Array, and Live Markdown Editor designs are fully documented inline in Phases 7–9 above.
 
-## Existing Code (from V2, ready to extend)
+## Existing Code (V2 baseline + V3 additions)
+
+**V2 baseline (extended in V3):**
 
 | Feature | Files |
 |---------|-------|
 | Security scanners (regex-based) | `src/security/SecurityScanner.ts`, `SecretScanner.ts`, `CryptoScanner.ts`, `InjectionScanner.ts` |
 | Quality scanners | `src/quality/QualityScanner.ts`, `DuplicationScanner.ts`, `MagicValueScanner.ts`, `DeadCodeScanner.ts`, `ComplexityAnalyzer.ts` |
-| Security handler | `src/mastercode_port/ui/handlers/security.ts` |
-| Quality handler | `src/mastercode_port/ui/handlers/quality.ts` |
 | Plan executor | `src/execution/PlanExecutor.ts` |
 | Autoexecute queue | `src/mastercode_port/ui/impl/autoexecuteImpl.ts` |
 | Orchestrator | `src/mastercode_port/orchestrator/conversation.ts` |
@@ -1455,6 +1799,30 @@ The webview renders the markdown using the same Milkdown editor, but in read-onl
 | Persona prompts | `src/personas/prompts/*.system.md` |
 | Settings store | `src/settings/index.ts` |
 | Coplay MCP client | `src/mastercode_port/services/coplayClient.ts` |
+
+**V3 additions (new in V3):**
+
+| Feature | Files |
+|---------|-------|
+| Webview state config | `src/webview/panel/state.ts` |
+| Chat store (persona/skills) | `src/webview/panel/features/chatStore.ts` |
+| Right panel modes | `src/webview/panel/features/rightPanel.ts` |
+| Chat mode switching | `src/webview/panel/features/chatMode.ts` |
+| Webview message router | `src/webview/panel/ipc/messageRouter.ts` |
+| Extension message router | `src/mastercode_port/ui/mainPanelRouter.ts` |
+| Shared message types | `src/mastercode_port/ui/mainPanelTypes.ts` |
+| Handler modules (33) | `src/mastercode_port/ui/handlers/*.ts` |
+| Feature modules (42) | `src/webview/panel/features/*.ts` |
+| Semgrep runner | `src/security/SemgrepRunner.ts`, `SemgrepTypes.ts`, `SemgrepRules.ts` |
+| Station Engineer | `src/engineer/EngineerEngine.ts`, `EngineerScorer.ts`, `EngineerPersistence.ts`, `RuleTriggers.ts` |
+| Autopilot engine | `src/autopilot/AutopilotEngine.ts`, `ErrorStrategy.ts`, `RateLimitDetector.ts`, `AutopilotSession.ts` |
+| Game UI pipeline | `src/gameui/GameUIPipeline.ts`, `GameUITypes.ts` |
+| Comms handler | `src/mastercode_port/ui/handlers/comms.ts` |
+| Ops handler | `src/mastercode_port/ui/handlers/ops.ts` |
+| Markdown editor | `src/editors/MarkdownEditorProvider.ts` |
+| Flow visualization | `src/webview/panel/features/flow.ts` |
+| Sector map (orbital) | `src/webview/panel/features/sectorMap.ts` |
+| Settings overlay | `src/webview/panel/features/settingsPanel.ts` |
 
 ---
 

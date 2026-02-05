@@ -27,9 +27,23 @@ import { handleAutosolveMessage } from './handlers/autosolve';
 import { handleMemoryMessage } from './handlers/memory';
 import { handleAgentSkillsMessage } from './handlers/agentSkills';
 import { handleExplorerMessage } from './handlers/explorer';
+import { handleEngineerMessage } from './handlers/engineer';
+import { handleAutopilotMessage } from './handlers/autopilot';
+import { handleGameUIMessage } from './handlers/gameui';
+import { handleDbMessage } from './handlers/db';
+import { handleCommsMessage } from './handlers/comms';
+import { handleOpsMessage } from './handlers/ops';
+import { handleDiagnosticsMessage } from './handlers/diagnostics';
 
 export async function handleMainPanelMessage(panel: any, message: any): Promise<void> {
+    if (await handleDiagnosticsMessage(panel, message)) return;
     if (await handleExplorerMessage(panel, message)) return;
+    if (await handleEngineerMessage(panel, message)) return;
+    if (await handleAutopilotMessage(panel, message)) return;
+    if (await handleGameUIMessage(panel, message)) return;
+    if (await handleDbMessage(panel, message)) return;
+    if (await handleCommsMessage(panel, message)) return;
+    if (await handleOpsMessage(panel, message)) return;
     if (await handleDashboardMessage(panel, message)) return;
     if (await handleHandoffMessage(panel, message)) return;
     if (await handleSecurityMessage(panel, message)) return;

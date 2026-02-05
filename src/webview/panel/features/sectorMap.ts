@@ -128,7 +128,10 @@ export function createSectorMapHandlers(deps) {
       graphNodes = [];
       const centerId = opts.centerId || 'core';
       const template = POSITION_TEMPLATES[opts.layoutTemplate || 'rpg'] || {};
-      const scale = Math.min(W, H) * 0.5;
+      // Scale nodes to use the full canvas area — use separate X/Y scales
+      const scaleX = W * 0.5;
+      const scaleY = H * 0.5;
+      const scale = Math.min(W, H) * 0.5; // for auto-layout ring sizing
 
       // Try template positions first, fall back to auto-ring layout
       allNodes.forEach(s => {
@@ -136,11 +139,11 @@ export function createSectorMapHandlers(deps) {
         const isCenter = s.id === centerId;
 
         if (tpl) {
-          // Template position (static)
+          // Template position — scale X and Y independently to fill canvas
           graphNodes.push({
             ...s,
-            x: tpl.x * scale,
-            y: tpl.y * scale,
+            x: tpl.x * scaleX * 0.92,
+            y: tpl.y * scaleY * 0.85,
             radius: isCenter ? opts.coreRadius : (tpl.ring === 1 ? opts.ring1Radius : opts.ring2Radius),
             ring: tpl.ring,
           });
@@ -300,7 +303,7 @@ export function createSectorMapHandlers(deps) {
         ctx.setLineDash([]);
       });
 
-      // Dependency edges
+      // Dependency edges — solid for asmdef-enforced, dashed for config-only
       graphNodes.forEach(n => {
         (n.deps || []).forEach(depId => {
           const dep = graphNodes.find(d => d.id === depId);
@@ -318,7 +321,11 @@ export function createSectorMapHandlers(deps) {
           ctx.quadraticCurveTo(mx, my, x2, y2);
           ctx.strokeStyle = grad;
           ctx.lineWidth = hoveredNode && (hoveredNode.id === n.id || hoveredNode.id === depId) ? 2 : 1;
+          // CF-2: Solid edges for asmdef-enforced deps, dashed for config-only
+          const bothHaveAsmdef = (n.scripts > 0) && (dep.scripts > 0);
+          ctx.setLineDash(bothHaveAsmdef ? [] : [6, 4]);
           ctx.stroke();
+          ctx.setLineDash([]);
         });
       });
 
@@ -604,6 +611,19 @@ export function createSectorMapHandlers(deps) {
   }
 
   /**
+   * Force resize after the Sectors tab becomes visible.
+   * Needed because canvas dimensions can't be computed while hidden.
+   */
+  function resizeSectorMap() {
+    if (sectorMapInstance) {
+      // Delay to ensure browser has laid out the visible tab
+      requestAnimationFrame(() => {
+        sectorMapInstance.resize();
+      });
+    }
+  }
+
+  /**
    * Request sector map data from the extension backend.
    */
   function requestSectorMapData() {
@@ -669,6 +689,7 @@ export function createSectorMapHandlers(deps) {
     initSectorMap,
     renderSectorMap,
     destroySectorMap,
+    resizeSectorMap,
     requestSectorMapData,
     getDefaultSectorData,
 

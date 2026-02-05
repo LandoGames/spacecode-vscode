@@ -1,0 +1,123 @@
+rules:
+  - id: spacecode.quality.ts.unused-promise
+    patterns:
+      - pattern: $FUNC(...)
+      - metavariable-type:
+          metavariable: $FUNC
+          type: Promise
+    pattern-not: await $FUNC(...)
+    pattern-not: return $FUNC(...)
+    pattern-not: $VAR = $FUNC(...)
+    message: >
+      Unhandled Promise. The return value of this async function is not awaited,
+      returned, or assigned. This may cause silent failures.
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      category: quality
+      confidence: MEDIUM
+      impact: MEDIUM
+
+  - id: spacecode.quality.ts.console-log
+    pattern: console.log(...)
+    message: >
+      console.log() left in production code. Consider using a proper logger
+      or removing debug statements before committing.
+    languages: [typescript, javascript]
+    severity: INFO
+    metadata:
+      category: quality
+      confidence: HIGH
+      impact: LOW
+
+  - id: spacecode.quality.ts.todo-fixme
+    pattern-regex: "//\\s*(TODO|FIXME|HACK|XXX|TEMP)\\b"
+    message: >
+      TODO/FIXME comment found. Track these in your issue tracker instead of
+      leaving them in code where they may be forgotten.
+    languages: [typescript, javascript]
+    severity: INFO
+    metadata:
+      category: quality
+      confidence: HIGH
+      impact: LOW
+
+  - id: spacecode.quality.ts.empty-catch
+    pattern: |
+      try { ... } catch ($ERR) { }
+    message: >
+      Empty catch block silently swallows errors. At minimum, log the error
+      or add a comment explaining why it's intentionally empty.
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      category: quality
+      confidence: HIGH
+      impact: MEDIUM
+
+  - id: spacecode.quality.ts.any-type
+    pattern: |
+      $VAR: any
+    message: >
+      Explicit 'any' type usage bypasses TypeScript's type checking.
+      Consider using a more specific type, 'unknown', or a generic.
+    languages: [typescript]
+    severity: INFO
+    metadata:
+      category: quality
+      confidence: HIGH
+      impact: LOW
+
+  - id: spacecode.quality.cs.empty-catch
+    pattern: |
+      try { ... } catch ($EXCEPTION) { }
+    message: >
+      Empty catch block silently swallows exceptions. Log the exception
+      or handle it appropriately.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: quality
+      confidence: HIGH
+      impact: MEDIUM
+
+  - id: spacecode.quality.cs.debug-log-in-production
+    patterns:
+      - pattern: Debug.Log(...)
+      - pattern: Debug.LogWarning(...)
+      - pattern: Debug.LogError(...)
+    message: >
+      Debug.Log calls impact performance in production builds. Consider
+      using conditional compilation (#if DEBUG) or a logging system that
+      can be disabled in release builds.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: quality
+      technology: [unity]
+      confidence: HIGH
+      impact: LOW
+
+  - id: spacecode.quality.cs.magic-number
+    pattern-regex: "(?:=|return|\\+|\\-|\\*|/)\\s+(?:(?!0|1|-1|2|100|255|360|1000)\\d{2,})"
+    message: >
+      Magic number detected. Extract to a named constant for better
+      readability and maintainability.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: quality
+      confidence: LOW
+      impact: LOW
+
+  - id: spacecode.quality.ts.nested-ternary
+    pattern: $COND1 ? $THEN1 : $COND2 ? $THEN2 : $ELSE
+    message: >
+      Nested ternary operator is hard to read. Consider using if/else
+      statements or a lookup object instead.
+    languages: [typescript, javascript]
+    severity: INFO
+    metadata:
+      category: quality
+      confidence: HIGH
+      impact: LOW

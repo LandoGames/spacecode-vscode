@@ -1,9 +1,9 @@
 // @ts-nocheck
 
 export function createControlTabsHandlers(deps) {
-  const { unityCheckConnection, onSectorsTabOpen } = deps;
+  const { unityCheckConnection, onSectorsTabOpen, onEngineerTabOpen, onCommsTabOpen, onInfraTabOpen, onDiagnosticsTabOpen } = deps;
 
-  const TAB_IDS = ['info', 'sectors', 'ops', 'security', 'quality', 'unity'];
+  const TAB_IDS = ['info', 'sectors', 'ops', 'security', 'quality', 'diagnostics', 'unity', 'gameui', 'engineer', 'comms', 'infra'];
 
   function switchControlTab(tab) {
     // Hide all tabs and deactivate all buttons
@@ -23,13 +23,21 @@ export function createControlTabsHandlers(deps) {
     const selectedBtn = document.getElementById('controlTabBtn' + selectedId);
     const selectedPanel = document.getElementById('controlTab' + selectedId);
     if (selectedBtn) selectedBtn.classList.add('active');
-    if (selectedPanel) selectedPanel.style.display = 'block';
+    if (selectedPanel) selectedPanel.style.display = 'flex';
 
     // Tab-specific hooks
     if (tab === 'sectors' && typeof onSectorsTabOpen === 'function') {
       onSectorsTabOpen();
     } else if (tab === 'unity') {
       unityCheckConnection();
+    } else if (tab === 'engineer' && typeof onEngineerTabOpen === 'function') {
+      onEngineerTabOpen();
+    } else if (tab === 'comms' && typeof onCommsTabOpen === 'function') {
+      onCommsTabOpen();
+    } else if (tab === 'infra' && typeof onInfraTabOpen === 'function') {
+      onInfraTabOpen();
+    } else if (tab === 'diagnostics' && typeof onDiagnosticsTabOpen === 'function') {
+      onDiagnosticsTabOpen();
     }
 
     localStorage.setItem('spacecode.controlTab', tab);

@@ -62,6 +62,7 @@ export function createSettingsPanelHandlers(deps) {
     if (panelName === 'settings') {
       vscode.postMessage({ type: 'getSettings' });
       vscode.postMessage({ type: 'getCliStatus' });
+      vscode.postMessage({ type: 'getSoundSettings' });
     }
   }
 

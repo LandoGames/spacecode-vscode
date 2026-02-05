@@ -1,5 +1,7 @@
 // @ts-nocheck
 
+import { SoundService } from '../../services/soundService';
+
 export async function handleAutoexecuteMessage(panel: any, message: any): Promise<boolean> {
   switch (message.type) {
     case 'autoexecuteList':
@@ -9,6 +11,7 @@ export async function handleAutoexecuteMessage(panel: any, message: any): Promis
     case 'autoexecuteApprove':
       if (typeof message.jobId === 'string') {
         panel._updateJobStatus(message.jobId, 'approved');
+        SoundService.getInstance().play('jobApproved');
         await panel._runApprovedJob(message.jobId);
       }
       return true;

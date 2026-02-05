@@ -9,6 +9,7 @@ export {
   SectorConfig,
   SectorManager,
   DEFAULT_RPG_SECTORS,
+  SECTOR_TEMPLATES,
   getSectorManager,
   initSectorManager
 } from './SectorConfig';

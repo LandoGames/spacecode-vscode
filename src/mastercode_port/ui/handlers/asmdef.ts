@@ -264,6 +264,7 @@ export async function handleAsmdefMessage(panel: any, message: any): Promise<boo
         passed: checkResult ? checkResult.passed : null,
         cycles,
         orphanFileCount,
+        contextAvailable: allSectors.length > 0,
       });
       return true;
     }
@@ -360,6 +361,193 @@ export async function handleAsmdefMessage(panel: any, message: any): Promise<boo
     case 'asmdefValidate': {
       const result = await panel.asmdefGate.check();
       panel._postMessage({ type: 'asmdefCheckResult', result });
+      return true;
+    }
+
+    // --- Sector Configuration UI (CF-8) ---
+
+    case 'sectorConfigGet': {
+      const { getSectorManager: getSM2, SECTOR_TEMPLATES } = await import('../../../sectors/SectorConfig');
+      const sm2 = getSM2();
+      const templates = Object.entries(SECTOR_TEMPLATES).map(([id, t]) => ({
+        id, label: t.label, sectorCount: t.sectors.length,
+      }));
+      panel._postMessage({
+        type: 'sectorConfigData',
+        sectors: sm2.getAllSectors(),
+        templates,
+      });
+      return true;
+    }
+
+    case 'sectorConfigSave': {
+      const { initSectorManager: initSM, getSectorManager: getSM3 } = await import('../../../sectors/SectorConfig');
+      const sectors = message.sectors;
+      if (!Array.isArray(sectors)) {
+        panel._postMessage({ type: 'error', message: 'Invalid sectors data.' });
+        return true;
+      }
+      // Build config object
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      const wsDir = workspaceFolders?.[0]?.uri.fsPath || '';
+      const projectName = workspaceFolders?.[0]?.name || 'Project';
+      const configObj = { version: 1, projectName, sectors };
+      // Ensure .spacecode/ directory exists
+      const path = require('path');
+      const configDir = path.join(wsDir, '.spacecode');
+      try {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
+      } catch (_e) { /* exists */ }
+      // Write config file
+      const configPath = path.join(configDir, 'sector-config.json');
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(configPath),
+        Buffer.from(JSON.stringify(configObj, null, 2), 'utf8')
+      );
+      // Reinitialize sector manager
+      initSM(configObj);
+      panel.sectorManager = getSM3();
+      panel._postMessage({ type: 'sectorConfigSaved', configPath });
+      // Refresh the sector map
+      await handleAsmdefMessage(panel, { type: 'sectorMapData' });
+      return true;
+    }
+
+    case 'sectorConfigApplyTemplate': {
+      const { SECTOR_TEMPLATES: templates2 } = await import('../../../sectors/SectorConfig');
+      const templateId = message.templateId;
+      const template = templates2[templateId];
+      if (!template) {
+        panel._postMessage({ type: 'error', message: 'Unknown template: ' + templateId });
+        return true;
+      }
+      // Deep clone sectors so user can edit without mutating originals
+      const cloned = JSON.parse(JSON.stringify(template.sectors));
+      panel._postMessage({
+        type: 'sectorConfigData',
+        sectors: cloned,
+        appliedTemplate: templateId,
+        templates: Object.entries(templates2).map(([id, t]) => ({
+          id, label: t.label, sectorCount: t.sectors.length,
+        })),
+      });
+      return true;
+    }
+
+    case 'sectorConfigAutoDetect': {
+      // Scan workspace to suggest sectors from folder structure and asmdef files
+      const detected: any[] = [];
+      const colorPalette = ['#6366f1', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#06b6d4', '#14b8a6', '#ec4899', '#64748b', '#a855f7', '#78716c', '#fbbf24'];
+      let colorIdx = 0;
+      const nextColor = () => colorPalette[colorIdx++ % colorPalette.length];
+
+      try {
+        // Scan for .asmdef files to derive sectors
+        const asmdefFiles = await vscode.workspace.findFiles('**/*.asmdef', '{**/Library/**,**/Temp/**,**/obj/**}', 100);
+        for (const f of asmdefFiles) {
+          try {
+            const content = await vscode.workspace.fs.readFile(f);
+            const json = JSON.parse(Buffer.from(content).toString('utf8'));
+            const name = json.name || '';
+            if (name) {
+              const pathObj = require('path');
+              const dir = pathObj.dirname(f.fsPath);
+              const relDir = vscode.workspace.asRelativePath(dir, false);
+              const id = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+              detected.push({
+                id,
+                name: name.toUpperCase(),
+                icon: 'cpu',
+                description: 'Auto-detected from ' + name + '.asmdef',
+                paths: ['**/' + relDir.split('/').pop() + '/**'],
+                rules: 'Auto-detected sector from assembly definition.',
+                dependencies: (json.references || []).map((r: string) =>
+                  r.replace(/^GUID:[a-f0-9]+$/, '').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')
+                ).filter((r: string) => r),
+                approvalRequired: false,
+                color: nextColor(),
+                source: 'asmdef',
+              });
+            }
+          } catch (_e) { /* skip invalid asmdef */ }
+        }
+
+        // If no asmdefs found, scan for common Unity folder patterns
+        if (detected.length === 0) {
+          const commonFolders = ['Scripts', 'Plugins', 'Editor', 'UI', 'Player', 'Enemy', 'AI', 'Combat', 'Inventory', 'World', 'Audio', 'Network'];
+          for (const folder of commonFolders) {
+            const found = await vscode.workspace.findFiles(`**/${folder}/**/*.cs`, '{**/Library/**,**/Temp/**}', 1);
+            if (found.length > 0) {
+              detected.push({
+                id: folder.toLowerCase(),
+                name: folder.toUpperCase(),
+                icon: 'cpu',
+                description: 'Auto-detected from ' + folder + '/ folder',
+                paths: ['**/' + folder + '/**'],
+                rules: 'Auto-detected sector from folder structure.',
+                dependencies: folder.toLowerCase() === 'editor' ? [] : ['core'],
+                approvalRequired: false,
+                color: nextColor(),
+                source: 'folder',
+              });
+            }
+          }
+        }
+      } catch (_e) { /* ignore scan errors */ }
+
+      panel._postMessage({
+        type: 'sectorConfigSuggested',
+        sectors: detected,
+      });
+      return true;
+    }
+
+    case 'sectorConfigExport': {
+      const { getSectorManager: getSM4 } = await import('../../../sectors/SectorConfig');
+      const sm4 = getSM4();
+      const workspaceFolders2 = vscode.workspace.workspaceFolders;
+      const projectName2 = workspaceFolders2?.[0]?.name || 'Project';
+      const exportConfig = sm4.exportConfig(projectName2);
+      const exportJson = JSON.stringify(exportConfig, null, 2);
+
+      // Show save dialog
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file('sectors.json'),
+        filters: { 'JSON': ['json'] },
+        title: 'Export Sector Configuration',
+      });
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(exportJson, 'utf8'));
+        panel._postMessage({ type: 'sectorConfigExported', path: uri.fsPath });
+      }
+      return true;
+    }
+
+    case 'sectorConfigImport': {
+      const uris = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: { 'JSON': ['json'] },
+        title: 'Import Sector Configuration',
+      });
+      if (uris && uris.length > 0) {
+        try {
+          const content = await vscode.workspace.fs.readFile(uris[0]);
+          const parsed = JSON.parse(Buffer.from(content).toString('utf8'));
+          if (parsed && Array.isArray(parsed.sectors)) {
+            panel._postMessage({
+              type: 'sectorConfigData',
+              sectors: parsed.sectors,
+              imported: true,
+            });
+          } else {
+            panel._postMessage({ type: 'error', message: 'Invalid sector config format — must contain a "sectors" array.' });
+          }
+        } catch (err: any) {
+          panel._postMessage({ type: 'error', message: 'Failed to import: ' + (err?.message || err) });
+        }
+      }
       return true;
     }
 

@@ -7,11 +7,11 @@
 import { AgentDefinition, SkillDefinition } from './types';
 
 /**
- * Claude - The Creator / Lead Engineer
+ * Lead Engineer (formerly Nova)
  */
-export const NOVA: AgentDefinition = {
-  id: 'nova',
-  name: 'Claude',
+export const LEAD_ENGINEER: AgentDefinition = {
+  id: 'lead-engineer',
+  name: 'Lead Engineer',
   title: 'Lead Engineer',
   icon: 'fa-rocket',
   color: '#a855f7',
@@ -37,12 +37,12 @@ export const NOVA: AgentDefinition = {
 };
 
 /**
- * Gears - The Station Engineer
+ * QA Engineer (formerly Gears)
  */
-export const GEARS: AgentDefinition = {
-  id: 'gears',
-  name: 'Gears',
-  title: 'Station Engineer',
+export const QA_ENGINEER: AgentDefinition = {
+  id: 'qa-engineer',
+  name: 'QA Engineer',
+  title: 'QA Engineer',
   icon: 'fa-gear',
   color: '#f59e0b',
   description: 'Maintenance and debugging specialist. Handles code quality, testing, and fixes.',
@@ -67,12 +67,12 @@ export const GEARS: AgentDefinition = {
 };
 
 /**
- * Index - The Librarian
+ * Technical Writer (formerly Index)
  */
-export const INDEX: AgentDefinition = {
-  id: 'index',
-  name: 'Index',
-  title: 'Librarian',
+export const TECHNICAL_WRITER: AgentDefinition = {
+  id: 'technical-writer',
+  name: 'Technical Writer',
+  title: 'Technical Writer',
   icon: 'fa-book',
   color: '#3b82f6',
   description: 'Documentation specialist. Manages project docs, generates documentation, and maintains knowledge.',
@@ -96,12 +96,12 @@ export const INDEX: AgentDefinition = {
 };
 
 /**
- * Triage - The Ticket Bot
+ * Issue Triager (formerly Triage)
  */
-export const TRIAGE: AgentDefinition = {
-  id: 'triage',
-  name: 'Triage',
-  title: 'Ticket Bot',
+export const ISSUE_TRIAGER: AgentDefinition = {
+  id: 'issue-triager',
+  name: 'Issue Triager',
+  title: 'Issue Triager',
   icon: 'fa-ticket',
   color: '#10b981',
   description: 'Ticket management and routing. Analyzes issues, creates tickets, and routes to appropriate agents.',
@@ -124,11 +124,11 @@ export const TRIAGE: AgentDefinition = {
 };
 
 /**
- * Vault - Database Engineer
+ * Database Engineer (formerly Vault)
  */
-export const VAULT: AgentDefinition = {
-  id: 'vault',
-  name: 'Vault',
+export const DATABASE_ENGINEER: AgentDefinition = {
+  id: 'database-engineer',
+  name: 'Database Engineer',
   title: 'Database Engineer',
   icon: 'fa-database',
   color: '#22c55e',
@@ -153,11 +153,11 @@ export const VAULT: AgentDefinition = {
 };
 
 /**
- * Palette - Art Director
+ * Art Director (formerly Palette)
  */
-export const PALETTE: AgentDefinition = {
-  id: 'palette',
-  name: 'Palette',
+export const ART_DIRECTOR: AgentDefinition = {
+  id: 'art-director',
+  name: 'Art Director',
   title: 'Art Director',
   icon: 'fa-palette',
   color: '#ec4899',
@@ -184,12 +184,12 @@ export const PALETTE: AgentDefinition = {
  * All agent definitions
  */
 export const AGENTS: Record<string, AgentDefinition> = {
-  nova: NOVA,
-  gears: GEARS,
-  index: INDEX,
-  triage: TRIAGE,
-  vault: VAULT,
-  palette: PALETTE
+  'lead-engineer': LEAD_ENGINEER,
+  'qa-engineer': QA_ENGINEER,
+  'technical-writer': TECHNICAL_WRITER,
+  'issue-triager': ISSUE_TRIAGER,
+  'database-engineer': DATABASE_ENGINEER,
+  'art-director': ART_DIRECTOR
 };
 
 /**
@@ -203,7 +203,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Generate code from natural language descriptions',
     category: 'code',
     icon: 'fa-code',
-    agents: ['nova'],
+    agents: ['lead-engineer'],
     command: '/generate',
     inputs: [
       { name: 'description', type: 'text', required: true, description: 'What to generate' }
@@ -218,7 +218,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Refactor code for better quality and maintainability',
     category: 'code',
     icon: 'fa-recycle',
-    agents: ['nova', 'gears'],
+    agents: ['lead-engineer', 'qa-engineer'],
     command: '/refactor',
     inputs: [
       { name: 'code', type: 'selection', required: true, description: 'Code to refactor' },
@@ -234,7 +234,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Review code for issues and improvements',
     category: 'analysis',
     icon: 'fa-search',
-    agents: ['nova', 'gears'],
+    agents: ['lead-engineer', 'qa-engineer'],
     command: '/review',
     inputs: [
       { name: 'code', type: 'selection', required: true, description: 'Code to review' }
@@ -249,7 +249,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Create structured implementation plans',
     category: 'code',
     icon: 'fa-lightbulb-o',
-    agents: ['nova'],
+    agents: ['lead-engineer'],
     command: '/plan',
     inputs: [
       { name: 'feature', type: 'text', required: true, description: 'Feature to plan' }
@@ -264,7 +264,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Autonomous execution with tool use',
     category: 'code',
     icon: 'fa-bolt',
-    agents: ['nova'],
+    agents: ['lead-engineer'],
     inputs: [
       { name: 'task', type: 'text', required: true, description: 'Task to execute' }
     ],
@@ -279,7 +279,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Generate unit and integration tests',
     category: 'testing',
     icon: 'fa-flask',
-    agents: ['gears'],
+    agents: ['qa-engineer'],
     command: '/test',
     inputs: [
       { name: 'code', type: 'selection', required: true, description: 'Code to test' },
@@ -295,7 +295,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Help identify and fix bugs',
     category: 'analysis',
     icon: 'fa-bug',
-    agents: ['gears'],
+    agents: ['qa-engineer'],
     command: '/debug',
     inputs: [
       { name: 'issue', type: 'text', required: true, description: 'Bug description' },
@@ -313,7 +313,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Scan code for security vulnerabilities',
     category: 'security',
     icon: 'fa-shield',
-    agents: ['gears'],
+    agents: ['qa-engineer'],
     command: '/security',
     inputs: [
       { name: 'scope', type: 'options', required: false, description: 'Scan scope', options: ['file', 'folder', 'project'] }
@@ -328,7 +328,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Analyze code quality and maintainability',
     category: 'analysis',
     icon: 'fa-star',
-    agents: ['gears'],
+    agents: ['qa-engineer'],
     command: '/quality',
     inputs: [],
     outputs: [
@@ -341,7 +341,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Find maintenance opportunities',
     category: 'analysis',
     icon: 'fa-wrench',
-    agents: ['gears'],
+    agents: ['qa-engineer'],
     command: '/maintenance',
     inputs: [],
     outputs: [
@@ -355,7 +355,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Generate documentation from code',
     category: 'documentation',
     icon: 'fa-file-text',
-    agents: ['index'],
+    agents: ['technical-writer'],
     command: '/doc',
     inputs: [
       { name: 'code', type: 'selection', required: true, description: 'Code to document' },
@@ -371,7 +371,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Update project README',
     category: 'documentation',
     icon: 'fa-book',
-    agents: ['index'],
+    agents: ['technical-writer'],
     command: '/readme',
     inputs: [
       { name: 'changes', type: 'text', required: false, description: 'Recent changes to include' }
@@ -387,7 +387,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Design database schemas',
     category: 'database',
     icon: 'fa-table',
-    agents: ['vault'],
+    agents: ['database-engineer'],
     command: '/schema',
     inputs: [
       { name: 'requirements', type: 'text', required: true, description: 'Data requirements' }
@@ -402,7 +402,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Build database queries',
     category: 'database',
     icon: 'fa-search-plus',
-    agents: ['vault'],
+    agents: ['database-engineer'],
     command: '/query',
     inputs: [
       { name: 'description', type: 'text', required: true, description: 'Query description' }
@@ -418,7 +418,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Design user interfaces',
     category: 'design',
     icon: 'fa-paint-brush',
-    agents: ['palette'],
+    agents: ['art-director'],
     command: '/ui',
     inputs: [
       { name: 'description', type: 'text', required: true, description: 'UI requirements' }
@@ -433,7 +433,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Generate color palettes',
     category: 'design',
     icon: 'fa-tint',
-    agents: ['palette'],
+    agents: ['art-director'],
     command: '/colors',
     inputs: [
       { name: 'mood', type: 'text', required: true, description: 'Desired mood/theme' }
@@ -449,7 +449,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Create a new ticket/issue',
     category: 'utility',
     icon: 'fa-plus-circle',
-    agents: ['triage'],
+    agents: ['issue-triager'],
     command: '/ticket',
     inputs: [
       { name: 'title', type: 'text', required: true, description: 'Ticket title' },
@@ -465,7 +465,7 @@ export const SKILLS: SkillDefinition[] = [
     description: 'Route ticket to appropriate agent',
     category: 'utility',
     icon: 'fa-share',
-    agents: ['triage'],
+    agents: ['issue-triager'],
     inputs: [
       { name: 'ticket', type: 'ticket', required: true, description: 'Ticket to route' }
     ],

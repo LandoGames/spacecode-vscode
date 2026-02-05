@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import { workflowStorage } from '../../agents/workflowStorage';
 import { AgentWorkflow, DrawflowExport, AgentNodeConfig, WorkflowEvent } from '../../agents/types';
+import { SoundService } from '../../services/soundService';
 
 export function createWorkflowsImpl(panel: any) {
   function initializeStorage(context: vscode.ExtensionContext): void {
@@ -91,6 +92,7 @@ export function createWorkflowsImpl(panel: any) {
         workflowId,
         result
       });
+      SoundService.getInstance().play('workflowDone');
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       panel._postMessage({

@@ -205,8 +205,8 @@ export type PlanningPhase = 'study' | 'connect' | 'plan' | 'review';
 export interface PlanningPhaseConfig {
   id: PlanningPhase;
   name: string;
-  leadPersona: 'nova' | 'gears' | 'index';
-  supportPersona?: 'nova' | 'gears' | 'index';
+  leadPersona: 'lead-engineer' | 'qa-engineer' | 'technical-writer';
+  supportPersona?: 'lead-engineer' | 'qa-engineer' | 'technical-writer';
   description: string;
   checklist: string[];
   tools: string[];
@@ -287,7 +287,7 @@ export interface PlanningGate {
   phase: PlanningPhase;
   name: string;
   criteria: string;
-  owner: 'nova' | 'gears' | 'index' | 'user';
+  owner: 'lead-engineer' | 'qa-engineer' | 'technical-writer' | 'user';
   required: boolean;
   status: 'pending' | 'passed' | 'failed' | 'waived';
   checkedAt?: number;

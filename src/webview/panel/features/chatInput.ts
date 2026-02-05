@@ -38,6 +38,15 @@ export function createChatInputHandlers(deps) {
     const chatSessions = getChatSessions();
     if (!text) return;
 
+    // Phase 0.9: Intercept built-in navigation slash commands
+    if (text.startsWith('/') && typeof window.tryNavigationCommand === 'function') {
+      if (window.tryNavigationCommand(text)) {
+        input.value = '';
+        autoResize(input);
+        return;
+      }
+    }
+
     // If AI is currently generating, this is an interrupt-and-send:
     // stop current generation first, then send the new message
     if (chatSessions[chatId]?.isGenerating) {

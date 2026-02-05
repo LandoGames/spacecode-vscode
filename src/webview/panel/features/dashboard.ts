@@ -7,6 +7,7 @@ export function createDashboardHandlers(deps) {
     shipSetStatus,
     setDashboardSubtab,
     setCurrentPersona,
+    getPersonaManualOverride,
     PERSONA_MAP,
   } = deps;
 
@@ -193,10 +194,12 @@ export function createDashboardHandlers(deps) {
       btn.classList.toggle('active', btn.getAttribute('data-subtab') === subtab);
     });
 
-    // Track subtab for persona routing and update persona
+    // Track subtab for persona routing and update persona (unless manual override)
     if (setDashboardSubtab) setDashboardSubtab(subtab);
-    const persona = PERSONA_MAP && PERSONA_MAP['dashboard:' + subtab];
-    if (persona && setCurrentPersona) setCurrentPersona(persona);
+    if (!getPersonaManualOverride || !getPersonaManualOverride()) {
+      const persona = PERSONA_MAP && PERSONA_MAP['dashboard:' + subtab];
+      if (persona && setCurrentPersona) setCurrentPersona(persona);
+    }
 
     // Request data refresh for specific subtabs
     if (subtab === 'settings') {

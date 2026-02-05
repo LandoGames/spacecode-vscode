@@ -14,7 +14,7 @@ export async function handleHandoffMessage(panel: any, message: any): Promise<bo
   switch (message.type) {
     case 'handoffCreate': {
       const handoff = createHandoff(
-        message.fromPersona || 'nova',
+        message.fromPersona || 'lead-engineer',
         message.toPersona,
         message.summary || '',
         message.context || {},

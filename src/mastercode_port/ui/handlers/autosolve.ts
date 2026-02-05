@@ -16,7 +16,7 @@ export async function handleAutosolveMessage(panel: any, message: any): Promise<
       const result = createAutosolveResult({
         ticketId: message.ticketId,
         planId: message.planId,
-        persona: message.persona || 'gears',
+        persona: message.persona || 'qa-engineer',
         title: message.title || 'Background task completed',
         summary: message.summary || '',
         changes: message.changes || [],
@@ -73,7 +73,7 @@ export async function handleAutosolveMessage(panel: any, message: any): Promise<
         // Create a handoff to Index persona for documentation
         createHandoff({
           fromPersona: result.persona as any,
-          toPersona: 'index',
+          toPersona: 'technical-writer',
           summary: `Document changes from autosolve: ${result.title}`,
           context: {
             chatHistory: [result.summary],

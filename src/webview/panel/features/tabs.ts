@@ -7,6 +7,7 @@ export function createTabHandlers(deps) {
     setCurrentTab,
     setCurrentMode,
     setCurrentPersona,
+    getPersonaManualOverride,
     getDashboardSubtab,
     restoreRightPanelModeForTab,
     updateChatModeSwitcherVisibility,
@@ -29,21 +30,22 @@ export function createTabHandlers(deps) {
   function switchTab(tabName) {
     console.log('[SpaceCode UI] switchTab called with:', tabName);
 
-    const chatSection = document.getElementById('chatSection');
+    // V3 layout: chat-pane is always visible (persistent left panel).
+    // Content-pane sections switch visibility based on active tab.
     const agentsSection = document.getElementById('agentsSection');
     const ticketsSection = document.getElementById('ticketsSection');
     const skillsSection = document.getElementById('skillsSection');
     const dashboardSection = document.getElementById('dashboardSection');
-    const rightPane = document.getElementById('rightPane');
-    const mainSplitter = document.getElementById('mainSplitter');
-    const leftPane = document.querySelector('.left-pane');
+    const stationSection = document.getElementById('stationSection');
 
-    if (chatSection) chatSection.style.display = 'none';
+    // Hide all content-pane sections
     if (agentsSection) agentsSection.style.display = 'none';
     if (ticketsSection) ticketsSection.style.display = 'none';
     if (skillsSection) skillsSection.style.display = 'none';
     if (dashboardSection) dashboardSection.style.display = 'none';
+    if (stationSection) stationSection.classList.remove('active');
 
+    // Update header tab button active state
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
     const activeBtn = document.querySelector(`.mode-btn[data-tab="${tabName}"]`);
     if (activeBtn) activeBtn.classList.add('active');
@@ -51,42 +53,19 @@ export function createTabHandlers(deps) {
     setCurrentTab(tabName);
     setCurrentMode(tabName);
 
-    // Update active persona based on tab (+ dashboard subtab)
-    const personaKey = tabName === 'dashboard'
-      ? `dashboard:${getDashboardSubtab()}`
-      : tabName;
-    const persona = (PERSONA_MAP && PERSONA_MAP[personaKey]) || PERSONA_MAP[tabName] || 'nova';
-    setCurrentPersona(persona);
-
-    if (rightPane) rightPane.style.display = 'none';
-    if (mainSplitter) mainSplitter.style.display = 'none';
-    if (leftPane) leftPane.style.flex = '1';
-
-    const contextFlowPanel = document.getElementById('contextFlowPanel');
+    // Auto-switch persona based on tab (+ dashboard subtab), unless manual override is active
+    if (!getPersonaManualOverride()) {
+      const personaKey = tabName === 'dashboard'
+        ? `dashboard:${getDashboardSubtab()}`
+        : tabName;
+      const persona = (PERSONA_MAP && PERSONA_MAP[personaKey]) || PERSONA_MAP[tabName] || 'lead-engineer';
+      setCurrentPersona(persona);
+    }
 
     switch (tabName) {
-      case TABS.CHAT:
-        if (chatSection) chatSection.style.display = 'flex';
-        if (leftPane) leftPane.style.flex = '1 1 50%';
-        if (rightPane) {
-          rightPane.style.display = 'flex';
-          rightPane.style.flex = '1 1 50%';
-        }
-        restoreRightPanelModeForTab(TABS.CHAT);
-        if (mainSplitter) mainSplitter.style.display = 'none';
-        if (contextFlowPanel) contextFlowPanel.style.display = 'none';
-        updateChatModeSwitcherVisibility();
-        break;
-
       case TABS.STATION:
-        if (rightPane) rightPane.style.display = 'flex';
-        if (mainSplitter) mainSplitter.style.display = 'block';
-        if (leftPane) leftPane.style.flex = '0 0 350px';
-        if (chatSection) chatSection.style.display = 'flex';
-        if (contextFlowPanel) contextFlowPanel.style.display = 'none';
+        if (stationSection) stationSection.classList.add('active');
         restoreRightPanelModeForTab(TABS.STATION);
-        const switcher = document.getElementById('chatModeSwitcher');
-        if (switcher) switcher.style.display = 'none';
         break;
 
       case TABS.AGENTS:
@@ -98,8 +77,6 @@ export function createTabHandlers(deps) {
       case TABS.SKILLS:
         if (skillsSection) {
           skillsSection.style.display = 'flex';
-        } else if (chatSection) {
-          chatSection.style.display = 'flex';
         }
         vscode.postMessage({ type: 'getSkills' });
         break;

@@ -137,7 +137,7 @@ export class SoundService {
    *   - The .mp3 file doesn't exist yet (stub)
    *   - The platform player isn't available
    */
-  play(event: SoundEvent): void {
+  play(event: SoundEvent, volumeOverride?: number): void {
     console.log(`[SoundService] play('${event}') called — enabled=${this.settings.enabled}, extensionPath=${this.extensionPath}`);
 
     if (!this.settings.enabled) { console.log('[SoundService] SKIP: sounds disabled'); return; }
@@ -151,7 +151,7 @@ export class SoundService {
 
     if (!fs.existsSync(soundPath)) { console.log('[SoundService] SKIP: file not found'); return; }
 
-    this.playFile(soundPath);
+    this.playFile(soundPath, volumeOverride);
   }
 
   /**
@@ -160,8 +160,8 @@ export class SoundService {
    * Spawns a detached child process — never blocks the extension host.
    * Errors are swallowed (sound is non-critical UX polish).
    */
-  private playFile(filePath: string): void {
-    const vol = this.settings.volume;
+  private playFile(filePath: string, volumeOverride?: number): void {
+    const vol = typeof volumeOverride === 'number' ? volumeOverride : this.settings.volume;
 
     switch (process.platform) {
       case 'darwin':
@@ -174,13 +174,31 @@ export class SoundService {
         break;
 
       case 'win32':
-        // TODO: Use PowerShell SoundPlayer or a lightweight .exe
-        // exec(`powershell -c "(New-Object Media.SoundPlayer '${filePath}').PlaySync()"`, ...);
+        // PowerShell SoundPlayer for .wav, or Start-Process for .mp3 via wmplayer
+        console.log(`[SoundService] exec: PowerShell SoundPlayer "${filePath}"`);
+        exec(
+          `powershell -NoProfile -Command "Add-Type -AssemblyName PresentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $p.Volume = ${vol}; $p.Open([uri]'${filePath.replace(/'/g, "''")}'); $p.Play(); Start-Sleep -Milliseconds 2000"`,
+          { timeout: 5000 },
+          (err) => {
+            if (err) console.error('[SoundService] PowerShell error:', err.message);
+          }
+        );
         break;
 
       case 'linux':
-        // TODO: Try paplay (PulseAudio) → aplay (ALSA) → mpv fallback
-        // exec(`paplay "${filePath}"`, ...);
+        // Try paplay (PulseAudio) first, fall back to aplay (ALSA)
+        console.log(`[SoundService] exec: paplay/aplay "${filePath}"`);
+        exec(`which paplay`, (paErr) => {
+          if (!paErr) {
+            exec(`paplay "${filePath}" --volume=${Math.round(vol * 65536)}`, { timeout: 5000 }, (err) => {
+              if (err) console.error('[SoundService] paplay error:', err.message);
+            });
+          } else {
+            exec(`aplay "${filePath}"`, { timeout: 5000 }, (err) => {
+              if (err) console.error('[SoundService] aplay error:', err.message);
+            });
+          }
+        });
         break;
     }
   }

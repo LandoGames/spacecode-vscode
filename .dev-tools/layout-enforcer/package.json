@@ -1,0 +1,10 @@
+{
+  "name": "spacecode-layout-enforcer",
+  "displayName": "SpaceCode Layout Enforcer (Dev Only)",
+  "description": "Enforces dev layout on every reload — closes auxiliary bar. Not shipped with SpaceCode.",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.80.0" },
+  "activationEvents": ["*"],
+  "main": "./extension.js",
+  "contributes": {}
+}

@@ -34,11 +34,11 @@ export interface TicketRoutingPolicy {
 }
 
 export const DEFAULT_ROUTING: TicketRoutingPolicy = {
-  bug: 'gears',
-  feature: 'nova',
-  doc_update: 'index',
-  refactor: 'gears',
-  question: 'nova'
+  bug: 'qa-engineer',
+  feature: 'lead-engineer',
+  doc_update: 'technical-writer',
+  refactor: 'qa-engineer',
+  question: 'lead-engineer'
 };
 
 let _tickets: Ticket[] = [];

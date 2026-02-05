@@ -20,23 +20,62 @@ import {
 import { SecretScanner, getSecretScanner } from './SecretScanner';
 import { CryptoScanner, getCryptoScanner } from './CryptoScanner';
 import { InjectionScanner, getInjectionScanner } from './InjectionScanner';
+import { SemgrepRunner, getSemgrepRunner, initSemgrepRunner } from './SemgrepRunner';
+import { SemgrepRulesManager, getSemgrepRulesManager, initSemgrepRulesManager } from './SemgrepRules';
+import { SemgrepMode } from './SemgrepTypes';
 
 /**
  * Security Scanner class
+ *
+ * Uses Semgrep as primary scan engine when available, falls back to
+ * built-in regex scanners when Semgrep is not installed.
  */
 export class SecurityScanner {
   private _secretScanner: SecretScanner;
   private _cryptoScanner: CryptoScanner;
   private _injectionScanner: InjectionScanner;
+  private _semgrepRunner: SemgrepRunner | null = null;
+  private _rulesManager: SemgrepRulesManager | null = null;
+  private _semgrepMode: SemgrepMode = 'unavailable';
 
   constructor() {
     this._secretScanner = getSecretScanner();
     this._cryptoScanner = getCryptoScanner();
     this._injectionScanner = getInjectionScanner();
+
+    // Initialize semgrep if workspace is available
+    const workspaceDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceDir) {
+      this._semgrepRunner = initSemgrepRunner(workspaceDir);
+      this._rulesManager = initSemgrepRulesManager(workspaceDir);
+    }
+  }
+
+  /** Get current Semgrep mode */
+  async getSemgrepMode(): Promise<SemgrepMode> {
+    if (this._semgrepRunner) {
+      this._semgrepMode = await this._semgrepRunner.getMode();
+    }
+    return this._semgrepMode;
+  }
+
+  /** Get Semgrep install status */
+  async getSemgrepStatus() {
+    if (!this._semgrepRunner) return { installed: false, error: 'No workspace' };
+    return this._semgrepRunner.checkInstalled();
+  }
+
+  /** Get rules manager */
+  getRulesManager(): SemgrepRulesManager | null {
+    return this._rulesManager;
   }
 
   /**
    * Run a full security scan
+   *
+   * Strategy: Try Semgrep first (if installed), then augment with built-in
+   * regex scanners for areas Semgrep doesn't cover. If Semgrep is unavailable,
+   * fall back entirely to regex scanners.
    */
   async scan(
     options: Partial<SecurityScanOptions> = {}
@@ -62,14 +101,47 @@ export class SecurityScanner {
     const scannedPaths: string[] = [];
 
     try {
-      // Run secret scanner
+      // === Phase 1: Semgrep scan (primary engine) ===
+      const semgrepMode = await this.getSemgrepMode();
+      let semgrepRan = false;
+
+      if (semgrepMode === 'full' && this._semgrepRunner && this._rulesManager) {
+        rulesRun.push('semgrep-sast');
+        try {
+          const profileId = (options as any).semgrepProfile || 'security-full';
+          const config = this._rulesManager.buildConfig(profileId);
+          const semgrepResult = await this._semgrepRunner.scan(config);
+
+          findings.push(...semgrepResult.findings);
+          scannedPaths.push(...semgrepResult.filesScanned);
+          rulesRun.push(...semgrepResult.rulesRun);
+          errors.push(...semgrepResult.errors);
+          semgrepRan = true;
+        } catch (error) {
+          errors.push({
+            ruleId: 'semgrep-sast',
+            message: error instanceof Error ? error.message : 'Semgrep scan failed',
+            recoverable: true
+          });
+        }
+      }
+
+      // === Phase 2: Built-in regex scanners (fallback or augmentation) ===
+      // When Semgrep ran, only use regex scanners for areas Semgrep doesn't cover well.
+      // When Semgrep didn't run, use all regex scanners as full fallback.
+
+      // Secret scanner — always run (catches project-specific patterns Semgrep may miss)
       if (opts.runSecretScan) {
         rulesRun.push('secret-scanner');
         try {
           const secretFindings = await this._secretScanner.scanWorkspace(workspaceFolder, {
             maxFiles: opts.maxFilesToScan
           });
-          findings.push(...secretFindings);
+          // Deduplicate: skip regex findings that overlap with Semgrep findings
+          const deduped = semgrepRan
+            ? this._deduplicateFindings(secretFindings, findings)
+            : secretFindings;
+          findings.push(...deduped);
         } catch (error) {
           errors.push({
             ruleId: 'secret-scanner',
@@ -81,8 +153,8 @@ export class SecurityScanner {
         skippedRules.push('secret-scanner');
       }
 
-      // Run crypto scanner
-      if (opts.runCryptoScan) {
+      // Crypto scanner — run as fallback only when Semgrep didn't run
+      if (opts.runCryptoScan && !semgrepRan) {
         rulesRun.push('crypto-scanner');
         try {
           const cryptoFindings = await this._cryptoScanner.scanWorkspace(workspaceFolder, {
@@ -96,12 +168,12 @@ export class SecurityScanner {
             recoverable: true
           });
         }
-      } else {
+      } else if (!semgrepRan) {
         skippedRules.push('crypto-scanner');
       }
 
-      // Run injection scanner
-      if (opts.runInjectionScan) {
+      // Injection scanner — run as fallback only when Semgrep didn't run
+      if (opts.runInjectionScan && !semgrepRan) {
         rulesRun.push('injection-scanner');
         try {
           const injectionFindings = await this._injectionScanner.scanWorkspace(workspaceFolder, {
@@ -115,14 +187,14 @@ export class SecurityScanner {
             recoverable: true
           });
         }
-      } else {
+      } else if (!semgrepRan) {
         skippedRules.push('injection-scanner');
       }
 
       // Count unique files scanned
       const uniqueFiles = new Set(findings.map(f => f.file));
-      filesScanned = uniqueFiles.size;
-      scannedPaths.push(...uniqueFiles);
+      filesScanned = Math.max(uniqueFiles.size, scannedPaths.length);
+      if (scannedPaths.length === 0) scannedPaths.push(...uniqueFiles);
 
     } catch (error) {
       errors.push({
@@ -305,12 +377,12 @@ export class SecurityScanner {
   }
 
   /**
-   * Create a handoff request to Gears for fixing
+   * Create a handoff request to QA Engineer for fixing
    */
   createFixHandoff(finding: SecurityFinding): SecurityFixHandoff {
     return {
       finding,
-      targetPersona: 'gears',
+      targetPersona: 'qa-engineer',
       context: `Security vulnerability found:\n\n` +
         `**${finding.title}** (${finding.severity.toUpperCase()})\n` +
         `File: ${finding.file}:${finding.line}\n` +
@@ -319,6 +391,59 @@ export class SecurityScanner {
       suggestedApproach: finding.suggestedFix || 'Review and fix the security issue',
       priority: finding.severity === 'critical' ? 'immediate' :
         finding.severity === 'high' ? 'soon' : 'backlog'
+    };
+  }
+
+  /**
+   * Deduplicate regex findings against Semgrep findings.
+   * If a regex finding matches the same file+line as a Semgrep finding, skip it.
+   */
+  private _deduplicateFindings(
+    newFindings: SecurityFinding[],
+    existing: SecurityFinding[]
+  ): SecurityFinding[] {
+    const existingKeys = new Set(
+      existing.map(f => `${f.file}:${f.line}:${f.category}`)
+    );
+    return newFindings.filter(f => !existingKeys.has(`${f.file}:${f.line}:${f.category}`));
+  }
+
+  /**
+   * Run a Semgrep-only scan with a specific profile
+   */
+  async scanWithProfile(profileId: string): Promise<SecurityScanResult> {
+    const startTime = Date.now();
+    const scanId = `scan-${startTime}-${Math.random().toString(36).slice(2, 8)}`;
+
+    if (!this._semgrepRunner || !this._rulesManager) {
+      return this._createEmptyResult(scanId, startTime, 'Semgrep not available');
+    }
+
+    const config = this._rulesManager.buildConfig(profileId);
+    const result = await this._semgrepRunner.scan(config);
+
+    const findingsBySeverity = this._countBySeverity(result.findings);
+    const findingsByCategory = this._countByCategory(result.findings);
+    const score = this._calculateScore(findingsBySeverity);
+    const passed = findingsBySeverity.critical === 0 && findingsBySeverity.high === 0;
+
+    return {
+      scanId,
+      startedAt: startTime,
+      completedAt: Date.now(),
+      duration: result.duration,
+      filesScanned: result.filesScanned.length,
+      linesScanned: 0,
+      scannedPaths: result.filesScanned,
+      findings: result.findings,
+      findingsBySeverity,
+      findingsByCategory,
+      passed,
+      score,
+      summary: this._generateSummary(result.findings, findingsBySeverity, passed),
+      rulesRun: result.rulesRun,
+      skippedRules: [],
+      errors: result.errors,
     };
   }
 

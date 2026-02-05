@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { AIProvider } from '../../providers/base';
 import { PlanGenerator, PLAN_TEMPLATES, Plan, PlanGenerationResult } from '../../../planning';
+import { SoundService } from '../../services/soundService';
 
 export function createPlansImpl(panel: any) {
   function getWorkspaceRelativePath(filePath: string): string {
@@ -116,6 +117,7 @@ export function createPlansImpl(panel: any) {
 
     await savePlan(result.plan, 'created');
     panel._postMessage({ type: 'planGenerated', plan: result.plan });
+    SoundService.getInstance().play('planReady');
   }
 
   async function runAIReview(diff: string): Promise<void> {

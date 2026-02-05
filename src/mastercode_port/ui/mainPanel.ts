@@ -393,6 +393,11 @@ export class MainPanel {
       this._postMessage({ type: 'compacted', ...data, chatId: this._currentChatId });
     });
 
+    this.orchestrator.on('error', (error: any) => {
+      this._postMessage({ type: 'error', error, chatId: this._currentChatId });
+      SoundService.getInstance().play('aiError');
+    });
+
     // Set context for keybindings
     vscode.commands.executeCommand('setContext', 'spacecode.panelFocused', true);
   }

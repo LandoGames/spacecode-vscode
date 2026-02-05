@@ -25,7 +25,7 @@ export async function handleAgentSkillsMessage(panel: any, message: any): Promis
     }
 
     case 'getAgentSkills': {
-      const skills = getAgentSkills(message.agentId || 'nova');
+      const skills = getAgentSkills(message.agentId || 'lead-engineer');
       panel._postMessage({ type: 'agentSkillsList', agentId: message.agentId, skills });
       return true;
     }

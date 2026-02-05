@@ -9,6 +9,8 @@ import {
   TAB_DEFAULT_MODE,
   MODES,
   PERSONA_MAP,
+  TAB_SKILL_MAP,
+  BUILTIN_NAV_COMMANDS,
   uiState,
 } from './state';
 import { createDocTargetHandlers } from './features/docTargets';
@@ -47,7 +49,16 @@ import { shipSetStatus } from './utils/status';
 import { getContextLimit } from './utils/context';
 import { showToast } from './utils/toast';
 import { createFlowPanelHandlers } from './features/flow';
+import { createChatStore } from './features/chatStore';
 import { createSectorMapHandlers } from './features/sectorMap';
+import { createEngineerHandlers } from './features/engineer';
+import { createAutopilotHandlers } from './features/autopilot';
+import { createGameUIHandlers } from './features/gameui';
+import { createDbHandlers } from './features/db';
+import { createChatSearchHandlers } from './features/chatSearch';
+import { createCommsHandlers } from './features/comms';
+import { createOpsHandlers } from './features/ops';
+import { createDiagnosticsHandlers } from './features/diagnostics';
 import { createMessageRouter } from './ipc/messageRouter';
 
 // These globals are injected by the webview host before this script loads
@@ -55,6 +66,9 @@ const STATION_MAP = window.__SC_STATION_MAP__;
 const BUILD_ID = window.__SC_BUILD_ID__;
 const vscode = window.__SC_VSCODE__;
 
+
+// ChatStore: single source of truth for chat persona/override/skills state
+const chatStore = createChatStore({ uiState, PERSONA_MAP, vscode });
 
 // Legacy global variables - to be migrated to uiState
 let currentTab = uiState.currentTab;
@@ -75,6 +89,9 @@ let currentChatId = '';
 let chatCounter = 0;
 let currentSettings = {};
 let _gptFlowPending = false;
+
+// Expose chatStore globally for cross-module access
+window.chatStore = chatStore;
 
 // Flow visualization manager
 const flowManager = createFlowPanelHandlers({
@@ -114,11 +131,173 @@ const flowManager = createFlowPanelHandlers({
       initSectorMap,
       renderSectorMap,
       destroySectorMap,
+      resizeSectorMap,
       requestSectorMapData,
       getDefaultSectorData,
       createOrbitalGraph,
       initAiOrbitalFlow,
     } = sectorMapManager;
+
+    // Station Engineer handlers (Phase 1)
+    const engineerHandlers = createEngineerHandlers({
+      vscode,
+      escapeHtml,
+    });
+
+    const {
+      engineerRenderStatus,
+      engineerRenderSuggestions,
+      engineerRenderHistory,
+      engineerRenderPrompt,
+      engineerDismissPrompt,
+      engineerToggleShowAll,
+      engineerAction,
+      engineerRefresh,
+      engineerDelegate,
+      engineerRequestHistory,
+      engineerPromptAction,
+      engineerHandleDelegated,
+      engineerCheckSectors,
+    } = engineerHandlers;
+
+    // Autopilot handlers (Phase 3)
+    const autopilotHandlers = createAutopilotHandlers({
+      vscode,
+    });
+
+    const {
+      autopilotRenderStatus,
+      autopilotRenderStepResult,
+      autopilotRenderSessionPrompt,
+      autopilotRenderConfig,
+      autopilotPause,
+      autopilotResume,
+      autopilotAbort,
+      autopilotRequestStatus,
+      autopilotCheckSession,
+      autopilotResumeSession,
+      autopilotClearSession,
+      autopilotUpdateConfig,
+    } = autopilotHandlers;
+
+    // Game UI Pipeline handlers (Phase 4)
+    const gameuiHandlers = createGameUIHandlers({
+      vscode,
+    });
+
+    const {
+      gameuiRenderState,
+      gameuiRenderCatalog,
+      gameuiRenderEvent,
+      gameuiRenderThemes,
+      gameuiRequestState,
+      gameuiRequestCatalog,
+      gameuiFilterCategory,
+      gameuiGenerateComponent,
+      gameuiRunPhase,
+      gameuiRunAll,
+      gameuiStop,
+      gameuiRequestThemes,
+      gameuiSetActiveTheme,
+      gameuiGenerateThemeUSS,
+      gameuiSaveState,
+      gameuiLoadState,
+    } = gameuiHandlers;
+
+    // Database Panel handlers (Phase 6.1)
+    const dbHandlers = createDbHandlers({
+      vscode,
+    });
+
+    const {
+      dbRenderConnectionList,
+      dbRenderSchema,
+      dbRenderQueryResult,
+      dbRenderTestResult,
+      dbShowConnectionWizard,
+      dbAddConnection,
+      dbRemoveConnection,
+      dbTestConnection,
+      dbSetActive,
+      dbGetSchema,
+      dbRequestState,
+    } = dbHandlers;
+
+    // Chat Search handlers (Phase 6.2)
+    const chatSearchHandlers = createChatSearchHandlers({
+      vscode,
+      escapeHtml,
+    });
+
+    const {
+      chatSearchToggle,
+      chatSearchInput,
+      chatSearchRenderResults,
+      chatSearchLoadResult,
+      chatSearchClose,
+    } = chatSearchHandlers;
+
+    // Comms Array handlers (Phase 7)
+    const commsHandlers = createCommsHandlers({
+      vscode,
+      escapeHtml,
+    });
+
+    const {
+      commsRenderState,
+      commsRenderServices,
+      commsRenderScanDetail,
+      commsRenderScanStarted,
+      commsRenderScanCompleted,
+      commsRenderPrompt,
+      commsRequestState,
+      commsSetTier,
+      commsCheckServices,
+      commsStartScan,
+      commsViewScan,
+      commsCloseScanDetail,
+      commsInvestigateFinding,
+      commsGenerateFixForFinding,
+    } = commsHandlers;
+
+    // Ops Array handlers (Phase 8)
+    const opsHandlers = createOpsHandlers({
+      vscode,
+      escapeHtml,
+    });
+
+    const {
+      opsRenderState,
+      opsRenderServerList,
+      opsRenderServerDetail,
+      opsRenderRecentOps,
+      opsRenderCommandOutput,
+      opsRequestState,
+      opsAddServer,
+      opsRemoveServer,
+      opsSelectServer,
+      opsTestConnection,
+      opsHealthCheck,
+      opsHardenServer,
+      opsDeployService,
+      opsExecuteCommand,
+      opsShowOpOutput,
+    } = opsHandlers;
+
+    // Diagnostics handlers (CF-3)
+    const diagHandlers = createDiagnosticsHandlers({
+      vscode,
+      escapeHtml,
+      showToast,
+    });
+
+    const {
+      onDiagnosticsTabOpen,
+      runDiagnosticsScan,
+      renderDiagnosticsResult,
+      renderDiagnosticsProgress,
+      diagnosticsOpenFile,
+    } = diagHandlers;
 
     // Chat session manager (updateTokenBar and getSelectedModel use lazy refs — defined later)
     const chatSessionManager = createChatSessionManager({
@@ -260,8 +439,26 @@ const flowManager = createFlowPanelHandlers({
       onSectorsTabOpen: () => {
         // Initialize sector map canvas when Sectors tab is first opened
         initSectorMap();
+        // Force resize after tab becomes visible (canvas needs visible parent for dimensions)
+        resizeSectorMap();
         // Load sector data from backend (or show defaults)
         requestSectorMapData();
+      },
+      onEngineerTabOpen: () => {
+        // Request engineer status when Engineer tab is opened
+        vscode.postMessage({ type: 'engineerStatus' });
+      },
+      onCommsTabOpen: () => {
+        // Request comms state when Comms tab is opened
+        vscode.postMessage({ type: 'commsGetState' });
+      },
+      onInfraTabOpen: () => {
+        // Request ops state when Infra tab is opened
+        vscode.postMessage({ type: 'opsGetState' });
+      },
+      onDiagnosticsTabOpen: () => {
+        // Request last diagnostics when Diag tab is opened
+        vscode.postMessage({ type: 'diagnosticsGetLast' });
       },
     });
 
@@ -293,6 +490,115 @@ const flowManager = createFlowPanelHandlers({
           vscode.postMessage({ type: 'sectorOpenAsmdef', sectorId: nameEl.dataset.sectorId });
         }
       },
+
+      // --- Sector Configuration UI (CF-8) ---
+      sectorConfigOpen: () => {
+        const panel = document.getElementById('sectorConfigPanel');
+        const mapContainer = document.querySelector('.sector-map-container');
+        const detailCard = document.getElementById('sectorDetailCard');
+        const summary = document.querySelector('.sector-map-summary');
+        if (panel) {
+          const isVisible = panel.style.display !== 'none';
+          panel.style.display = isVisible ? 'none' : 'block';
+          // Hide map and detail when config is open
+          if (mapContainer) (mapContainer as HTMLElement).style.display = isVisible ? '' : 'none';
+          if (detailCard) detailCard.style.display = 'none';
+          if (summary) (summary as HTMLElement).style.display = isVisible ? '' : 'none';
+          if (!isVisible) {
+            vscode.postMessage({ type: 'sectorConfigGet' });
+          }
+        }
+      },
+      sectorConfigClose: () => {
+        const panel = document.getElementById('sectorConfigPanel');
+        const mapContainer = document.querySelector('.sector-map-container');
+        const summary = document.querySelector('.sector-map-summary');
+        if (panel) panel.style.display = 'none';
+        if (mapContainer) (mapContainer as HTMLElement).style.display = '';
+        if (summary) (summary as HTMLElement).style.display = '';
+      },
+      sectorConfigApplyTemplate: (templateId: string) => {
+        if (!templateId) return;
+        vscode.postMessage({ type: 'sectorConfigApplyTemplate', templateId });
+      },
+      sectorConfigAutoDetect: () => {
+        const statusEl = document.getElementById('sectorConfigStatus');
+        if (statusEl) statusEl.textContent = 'Scanning workspace...';
+        vscode.postMessage({ type: 'sectorConfigAutoDetect' });
+      },
+      sectorConfigAdd: () => {
+        const list = document.getElementById('sectorConfigList');
+        if (!list) return;
+        const idx = list.querySelectorAll('.sector-config-row').length;
+        const row = document.createElement('div');
+        row.className = 'sector-config-row';
+        row.dataset.index = String(idx);
+        row.innerHTML = `
+          <div style="display:flex; gap:4px; align-items:center;">
+            <input type="color" value="#6366f1" class="sector-color-input" />
+            <input type="text" placeholder="sector-id" class="sector-id-input" style="width:80px;" />
+            <input type="text" placeholder="DISPLAY NAME" class="sector-name-input" style="flex:1;" />
+            <button class="btn-secondary" onclick="sectorConfigRemoveRow(this)" style="padding:2px 6px; font-size:10px;">&#x2715;</button>
+          </div>
+          <div style="display:flex; gap:4px; margin-top:3px;">
+            <input type="text" placeholder="Paths: **/Folder1/**, **/Folder2/**" class="sector-paths-input" style="flex:1;" />
+          </div>
+          <div style="display:flex; gap:4px; margin-top:3px;">
+            <input type="text" placeholder="Dependencies: core, inventory" class="sector-deps-input" style="flex:1;" />
+            <label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" class="sector-approval-input" /> Approval</label>
+          </div>
+        `;
+        list.appendChild(row);
+      },
+      sectorConfigRemoveRow: (btn: HTMLElement) => {
+        const row = btn.closest('.sector-config-row');
+        if (row) row.remove();
+      },
+      sectorConfigSave: () => {
+        const list = document.getElementById('sectorConfigList');
+        if (!list) return;
+        const rows = list.querySelectorAll('.sector-config-row');
+        const sectors: any[] = [];
+        rows.forEach((row) => {
+          const id = (row.querySelector('.sector-id-input') as HTMLInputElement)?.value?.trim();
+          const name = (row.querySelector('.sector-name-input') as HTMLInputElement)?.value?.trim();
+          const color = (row.querySelector('.sector-color-input') as HTMLInputElement)?.value || '#6366f1';
+          const pathsRaw = (row.querySelector('.sector-paths-input') as HTMLInputElement)?.value || '';
+          const depsRaw = (row.querySelector('.sector-deps-input') as HTMLInputElement)?.value || '';
+          const approval = (row.querySelector('.sector-approval-input') as HTMLInputElement)?.checked || false;
+          const description = (row as HTMLElement).dataset.description || '';
+          const rules = (row as HTMLElement).dataset.rules || '';
+          const icon = (row as HTMLElement).dataset.icon || 'cpu';
+          if (id) {
+            sectors.push({
+              id,
+              name: name || id.toUpperCase(),
+              icon,
+              description,
+              paths: pathsRaw.split(',').map((p: string) => p.trim()).filter((p: string) => p),
+              rules,
+              dependencies: depsRaw.split(',').map((d: string) => d.trim()).filter((d: string) => d),
+              approvalRequired: approval,
+              color,
+            });
+          }
+        });
+        if (sectors.length === 0) {
+          const statusEl = document.getElementById('sectorConfigStatus');
+          if (statusEl) statusEl.textContent = 'No sectors to save.';
+          return;
+        }
+        vscode.postMessage({ type: 'sectorConfigSave', sectors });
+        const statusEl = document.getElementById('sectorConfigStatus');
+        if (statusEl) statusEl.textContent = 'Saving...';
+      },
+      sectorConfigExport: () => {
+        vscode.postMessage({ type: 'sectorConfigExport' });
+      },
+      sectorConfigImport: () => {
+        vscode.postMessage({ type: 'sectorConfigImport' });
+      },
+
       // Security & Quality scan functions
       runSecurityScan: () => {
         vscode.postMessage({ type: 'securityScan' });
@@ -306,9 +612,96 @@ const flowManager = createFlowPanelHandlers({
       exportQualityReport: () => {
         vscode.postMessage({ type: 'qualityExport' });
       },
+
+      // --- Station Engineer (Phase 1) ---
+      engineerRefresh,
+      engineerAction,
+      engineerDelegate,
+      engineerRequestHistory,
+      engineerToggleShowAll,
+      engineerPromptAction,
+
+      // --- Autopilot (Phase 3) ---
+      autopilotPause,
+      autopilotResume,
+      autopilotAbort,
+      autopilotRequestStatus,
+      autopilotCheckSession,
+      autopilotResumeSession,
+      autopilotClearSession,
+      autopilotUpdateConfig,
+
+      // --- Game UI Pipeline (Phase 4) ---
+      gameuiRequestState,
+      gameuiRequestCatalog,
+      gameuiFilterCategory,
+      gameuiGenerateComponent,
+      gameuiRunPhase,
+      gameuiRunAll,
+      gameuiStop,
+      gameuiRequestThemes,
+      gameuiSetActiveTheme,
+      gameuiGenerateThemeUSS,
+      gameuiSaveState,
+      gameuiLoadState,
+
+      // --- Build Pipeline (Phase 6.3) ---
+      unityBuildCheck: () => {
+        const indicator = document.getElementById('buildStatusIndicator');
+        if (indicator) { indicator.textContent = 'Checking...'; indicator.style.color = 'var(--text-secondary)'; }
+        vscode.postMessage({ type: 'unityBuildCheck' });
+      },
+
+      // --- Chat Search (Phase 6.2) ---
+      chatSearchToggle,
+      chatSearchInput,
+      chatSearchLoadResult,
+      chatSearchClose,
+
+      // --- Database Panel (Phase 6.1) ---
+      dbShowConnectionWizard,
+      dbAddConnection,
+      dbRemoveConnection,
+      dbTestConnection,
+      dbSetActive,
+      dbGetSchema,
+      dbRequestState,
+
+      // --- Comms Array (Phase 7) ---
+      commsRequestState,
+      commsSetTier,
+      commsCheckServices,
+      commsStartScan,
+      commsViewScan,
+      commsCloseScanDetail,
+      commsInvestigateFinding,
+      commsGenerateFixForFinding,
+
+      // --- Ops Array (Phase 8) ---
+      opsRequestState,
+      opsAddServer,
+      opsRemoveServer,
+      opsSelectServer,
+      opsTestConnection,
+      opsHealthCheck,
+      opsHardenServer,
+      opsDeployService,
+      opsShowOpOutput,
+      opsExecuteActiveCommand: () => {
+        // Execute command on the active server
+        const state = window._opsActiveServerId;
+        if (state) {
+          opsExecuteCommand(state);
+        }
+      },
+
+      // --- Diagnostics (CF-3) ---
+      runDiagnosticsScan,
+      diagnosticsOpenFile,
+
       // Context Handoff functions
       handoffToPersona: (toPersona, action) => {
-        const fromPersona = uiState.currentPersona || 'nova';
+        const fromPersona = uiState.currentPersona || 'lead-engineer';
         const chatEl = document.getElementById('chatMessages');
         const lastMessages = chatEl ? chatEl.innerText.slice(-500) : '';
         vscode.postMessage({
@@ -345,11 +738,11 @@ const flowManager = createFlowPanelHandlers({
         };
         setTimeout(() => document.addEventListener('click', dismiss), 10);
       },
-      handoffToGears: () => { window.handoffToPersona('gears', 'send_and_stay'); },
-      handoffToNova: () => { window.handoffToPersona('nova', 'send_and_stay'); },
-      handoffToIndex: () => { window.handoffToPersona('index', 'send_and_stay'); },
-      handoffGoToGears: () => { window.handoffToPersona('gears', 'go_to_tab'); window.switchTab('station'); },
-      handoffGoToNova: () => { window.handoffToPersona('nova', 'go_to_tab'); window.switchTab('chat'); },
+      handoffToQaEngineer: () => { window.handoffToPersona('qa-engineer', 'send_and_stay'); },
+      handoffToLeadEngineer: () => { window.handoffToPersona('lead-engineer', 'send_and_stay'); },
+      handoffToTechnicalWriter: () => { window.handoffToPersona('technical-writer', 'send_and_stay'); },
+      handoffGoToQaEngineer: () => { window.handoffToPersona('qa-engineer', 'go_to_tab'); window.switchTab('station'); },
+      handoffGoToLeadEngineer: () => { window.handoffToPersona('lead-engineer', 'go_to_tab'); },
       // Autosolve functions
       autosolveAccept: (id) => { vscode.postMessage({ type: 'autosolveAccept', resultId: id }); },
       autosolveDismiss: (id) => { vscode.postMessage({ type: 'autosolveDismiss', resultId: id }); },
@@ -358,7 +751,7 @@ const flowManager = createFlowPanelHandlers({
     });
 
     const savedTab = localStorage.getItem('spacecode.controlTab') || 'info';
-    const allowedTabs = new Set(['info', 'coordinator', 'ops', 'unity', 'sectors', 'security', 'quality']);
+    const allowedTabs = new Set(['info', 'coordinator', 'ops', 'unity', 'sectors', 'security', 'quality', 'comms', 'infra']);
     setTimeout(() => switchControlTab(allowedTabs.has(savedTab) ? savedTab : 'info'), 0);
 
     setTimeout(() => {
@@ -591,8 +984,16 @@ const flowManager = createFlowPanelHandlers({
       toggleContextFlowDrawer,
     } = rightPanelHandlers;
 
+    // Wrap setRightPanelMode to re-init flow visualization when switching to flow mode
+    const _setRightPanelMode = (mode) => {
+      setRightPanelMode(mode);
+      if (mode === 'flow') {
+        setTimeout(() => initContextFlowVisualization(), 50);
+      }
+    };
+
     Object.assign(window, {
-      setRightPanelMode,
+      setRightPanelMode: _setRightPanelMode,
       toggleContextFlowPanel,
       toggleSwarmSidebar,
       toggleContextFlowDrawer,
@@ -690,9 +1091,10 @@ const flowManager = createFlowPanelHandlers({
     const tabHandlers = createTabHandlers({
       TABS,
       PERSONA_MAP,
-      setCurrentTab: (value) => { currentTab = value; },
+      setCurrentTab: (value) => { currentTab = value; reconcileContext(value); },
       setCurrentMode: (value) => { currentMode = value; },
-      setCurrentPersona: (value) => { uiState.currentPersona = value; },
+      setCurrentPersona: (value) => { uiState.currentPersona = value; updateContextBar(); },
+      getPersonaManualOverride: () => uiState.personaManualOverride,
       getDashboardSubtab: () => uiState.dashboardSubtab || 'docs',
       restoreRightPanelModeForTab,
       updateChatModeSwitcherVisibility,
@@ -738,8 +1140,229 @@ const flowManager = createFlowPanelHandlers({
       }
     };
 
+    // Persona manual override: set when user explicitly picks a persona,
+    // prevents tab-switch auto-switching until cleared.
+    const PERSONA_COLORS = {
+      'lead-engineer': '#a855f7',
+      'qa-engineer': '#f59e0b',
+      'technical-writer': '#3b82f6',
+      'issue-triager': '#10b981',
+      'database-engineer': '#22c55e',
+      'art-director': '#ec4899',
+    };
+    const PERSONA_LABELS = {
+      'lead-engineer': 'Lead Engineer',
+      'qa-engineer': 'QA Engineer',
+      'technical-writer': 'Technical Writer',
+      'issue-triager': 'Issue Triager',
+      'database-engineer': 'Database Engineer',
+      'art-director': 'Art Director',
+    };
+
+    function updateContextBar() {
+      const personaId = uiState.currentPersona || 'lead-engineer';
+      const color = PERSONA_COLORS[personaId] || '#a855f7';
+      const label = PERSONA_LABELS[personaId] || personaId;
+      const isPinned = !!uiState.personaManualOverride;
+
+      // Update persona tag in status bar
+      const tagPersona = document.getElementById('tagPersona');
+      const tagDot = document.getElementById('tagPersonaDot');
+      const tagLabel = document.getElementById('tagPersonaLabel');
+      if (tagDot) tagDot.style.background = color;
+      if (tagLabel) tagLabel.textContent = label;
+      if (tagPersona) {
+        tagPersona.classList.toggle('pinned', isPinned);
+        tagPersona.style.borderColor = `${color}66`;
+        tagPersona.style.background = `${color}14`;
+      }
+
+      // Render skill tags
+      const SKILL_LABELS = {
+        'sector-analysis': 'Sectors',
+        'asmdef-check': 'Asmdef',
+        'build-tools': 'Build',
+        'project-health': 'Health',
+        'settings-access': 'Settings',
+        'agent-management': 'Agents',
+        'task-delegation': 'Tasks',
+        'skill-lookup': 'Skills',
+        'doc-templates': 'Docs',
+      };
+      const skillsEl = document.getElementById('tagSkills');
+      if (skillsEl) {
+        const combined = [...new Set([...(uiState.autoSkills || []), ...(uiState.manualSkills || [])])];
+        skillsEl.innerHTML = combined.map(s => {
+          const display = SKILL_LABELS[s] || s.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+          return `<span class="tag tag-skill" title="${s}">${display}</span>`;
+        }).join('');
+      }
+
+      // Render skin tags (context docs/templates loaded)
+      const skinsEl = document.getElementById('tagSkins');
+      if (skinsEl) {
+        const skins = uiState.activeSkins || [];
+        skinsEl.innerHTML = skins.map(s =>
+          `<span class="tag tag-skin" title="${s}">${s}</span>`
+        ).join('');
+      }
+    }
+
+    function setPersonaManual(personaId) {
+      uiState.currentPersona = personaId;
+      uiState.personaManualOverride = true;
+      updateContextBar();
+      closePersonaMenu();
+      vscode.postMessage({ type: 'setPersona', personaId });
+    }
+    function clearPersonaOverride() {
+      uiState.personaManualOverride = false;
+      // Re-derive persona from current tab
+      const personaKey = currentTab === 'dashboard'
+        ? `dashboard:${uiState.dashboardSubtab || 'docs'}`
+        : currentTab;
+      const persona = (PERSONA_MAP && PERSONA_MAP[personaKey]) || PERSONA_MAP[currentTab] || 'lead-engineer';
+      uiState.currentPersona = persona;
+      updateContextBar();
+    }
+    function togglePersonaMenu() {
+      const menu = document.getElementById('personaMenu');
+      const tag = document.getElementById('tagPersona');
+      if (!menu) return;
+      const isOpen = menu.style.display !== 'none';
+      menu.style.display = isOpen ? 'none' : 'block';
+      // Position menu above the persona tag in the status bar
+      if (!isOpen && tag) {
+        const rect = tag.getBoundingClientRect();
+        const chatPane = document.getElementById('chatPane');
+        const paneRect = chatPane ? chatPane.getBoundingClientRect() : { left: 0, top: 0 };
+        menu.style.position = 'fixed';
+        menu.style.left = rect.left + 'px';
+        menu.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        menu.style.top = 'auto';
+      }
+      if (!isOpen) {
+        const dismiss = (e) => {
+          if (!menu.contains(e.target) && !e.target.closest('#tagPersona')) {
+            menu.style.display = 'none';
+            document.removeEventListener('click', dismiss);
+          }
+        };
+        setTimeout(() => document.addEventListener('click', dismiss), 10);
+      }
+    }
+    function closePersonaMenu() {
+      const menu = document.getElementById('personaMenu');
+      if (menu) menu.style.display = 'none';
+    }
+
+    // --- Phase 0.8: reconcileContext — updates persona + auto-skills on tab switch ---
+    function reconcileContext(newTab) {
+      // Update auto-skills for the new tab
+      const newAutoSkills = TAB_SKILL_MAP[newTab] || [];
+      uiState.autoSkills = newAutoSkills;
+      chatStore.setAutoSkills(newAutoSkills);
+
+      // Update persona (unless manual override)
+      if (!uiState.personaManualOverride) {
+        const personaKey = newTab === 'dashboard'
+          ? `dashboard:${uiState.dashboardSubtab || 'docs'}`
+          : newTab;
+        const persona = (PERSONA_MAP && PERSONA_MAP[personaKey]) || PERSONA_MAP[newTab] || 'lead-engineer';
+        uiState.currentPersona = persona;
+      }
+
+      updateContextBar();
+    }
+
+    // --- Phase 0.2 + 0.6: Chat collapse/expand ---
+    function toggleChatCollapse() {
+      const chatPane = document.getElementById('chatPane');
+      const expandBtn = document.getElementById('chatExpandBtn');
+      if (!chatPane) return;
+
+      const isCollapsed = chatPane.classList.toggle('collapsed');
+      uiState.chatCollapsed = isCollapsed;
+      localStorage.setItem('spacecode.chatCollapsed', isCollapsed ? '1' : '0');
+
+      if (expandBtn) expandBtn.style.display = isCollapsed ? 'block' : 'none';
+    }
+
+    // Restore collapsed state on load
+    if (localStorage.getItem('spacecode.chatCollapsed') === '1') {
+      const chatPane = document.getElementById('chatPane');
+      const expandBtn = document.getElementById('chatExpandBtn');
+      if (chatPane) chatPane.classList.add('collapsed');
+      if (expandBtn) expandBtn.style.display = 'block';
+      uiState.chatCollapsed = true;
+    }
+
+    // --- Phase 0.6: Single-panel mode for narrow viewports ---
+    function checkResponsiveLayout() {
+      const container = document.querySelector('.main-split');
+      if (!container) return;
+      const width = container.getBoundingClientRect().width;
+      const isSinglePanel = width < 550;
+      document.body.classList.toggle('single-panel-mode', isSinglePanel);
+      if (!isSinglePanel) {
+        document.body.classList.remove('show-content');
+      }
+    }
+
+    function toggleSinglePanelView() {
+      document.body.classList.toggle('show-content');
+    }
+
+    // Observe main-split resize
+    const resizeObserver = new ResizeObserver(() => checkResponsiveLayout());
+    const mainSplitEl = document.querySelector('.main-split');
+    if (mainSplitEl) resizeObserver.observe(mainSplitEl);
+
+    // --- Phase 0.9: Quick access slash-command interception ---
+    function tryNavigationCommand(text) {
+      const cmd = text.trim().toLowerCase();
+      const nav = BUILTIN_NAV_COMMANDS[cmd];
+      if (!nav) return false;
+
+      // Special commands
+      if (nav.special === 'help') {
+        const lines = Object.entries(BUILTIN_NAV_COMMANDS)
+          .filter(([, v]) => v.special !== 'help')
+          .map(([k, v]) => `  **${k}** — ${v.label}`)
+          .join('\n');
+        const helpText = `**Available Commands:**\n${lines}\n  **/help** — Show this help`;
+        // Inject as a system-style message
+        const chatMessages = document.getElementById('chatMessages');
+        if (chatMessages) {
+          const div = document.createElement('div');
+          div.className = 'chat-message system';
+          div.innerHTML = `<div class="message-content" style="font-size:11px; white-space:pre-line; color:var(--text-secondary);">${helpText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</div>`;
+          chatMessages.appendChild(div);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        return true;
+      }
+
+      switchTab(nav.tab);
+      if (nav.subtab) {
+        const switchDashboardSubtab = window.switchDashboardSubtab;
+        if (typeof switchDashboardSubtab === 'function') {
+          switchDashboardSubtab(nav.subtab);
+        }
+      }
+      return true;
+    }
+
     Object.assign(window, {
       switchTab,
+      setPersonaManual,
+      clearPersonaOverride,
+      togglePersonaMenu,
+      updateContextBar,
+      toggleChatCollapse,
+      toggleSinglePanelView,
+      tryNavigationCommand,
+      reconcileContext,
       toggleSettingsOverlay,
       // Legacy alias
       openSettings: toggleSettingsOverlay,
@@ -817,7 +1440,7 @@ const flowManager = createFlowPanelHandlers({
       setGenerating,
       updateSendStopButton,
       stopConversation,
-      getCurrentPersona: () => uiState.currentPersona || 'nova',
+      getCurrentPersona: () => uiState.currentPersona || 'lead-engineer',
     });
 
     const {
@@ -1078,6 +1701,45 @@ const flowManager = createFlowPanelHandlers({
       toggleSoundEnabled: (enabled) => {
         vscode.postMessage({ type: 'saveSoundSettings', enabled });
       },
+      saveSoundSetting: (key, value) => {
+        if (key === 'enabled') {
+          vscode.postMessage({ type: 'saveSoundSettings', enabled: value });
+        } else if (key === 'volume') {
+          vscode.postMessage({ type: 'saveSoundSettings', volume: parseFloat(value) });
+        }
+      },
+      saveSoundEventSetting: (event, enabled) => {
+        const evts = {};
+        evts[event] = enabled;
+        vscode.postMessage({ type: 'saveSoundSettings', events: evts });
+      },
+      soundVolumePreview: (() => {
+        let previewTimer = null;
+        return (val) => {
+          const label = document.getElementById('soundVolumeLabel');
+          if (label) label.textContent = `(${val}%)`;
+          // Debounced preview sound on slider drag
+          if (previewTimer) clearTimeout(previewTimer);
+          previewTimer = setTimeout(() => {
+            vscode.postMessage({ type: 'previewSound', volume: parseFloat(val) / 100 });
+          }, 300);
+        };
+      })(),
+      loadSoundSettingsUI: (settings) => {
+        if (!settings) return;
+        const enabledEl = document.getElementById('settingsSoundEnabled');
+        if (enabledEl) enabledEl.checked = settings.enabled !== false;
+        const volEl = document.getElementById('settingsSoundVolume');
+        if (volEl) volEl.value = String(Math.round((settings.volume || 0.5) * 100));
+        const volLabel = document.getElementById('soundVolumeLabel');
+        if (volLabel) volLabel.textContent = `(${Math.round((settings.volume || 0.5) * 100)}%)`;
+        const events = settings.events || {};
+        const allEvents = ['aiComplete', 'aiError', 'buildSuccess', 'buildFail', 'planReady', 'workflowDone', 'jobQueued', 'jobApproved', 'sectorViolation', 'notification'];
+        for (const evt of allEvents) {
+          const el = document.getElementById('soundEvt_' + evt);
+          if (el) el.checked = events[evt] !== false;
+        }
+      },
     });
 
     // Restore panel borders on load
@@ -1149,7 +1811,8 @@ const flowManager = createFlowPanelHandlers({
       escapeHtml,
       shipSetStatus,
       setDashboardSubtab: (value) => { uiState.dashboardSubtab = value; },
-      setCurrentPersona: (value) => { uiState.currentPersona = value; },
+      setCurrentPersona: (value) => { uiState.currentPersona = value; updateContextBar(); },
+      getPersonaManualOverride: () => uiState.personaManualOverride,
       PERSONA_MAP,
     });
 
@@ -1205,10 +1868,10 @@ const flowManager = createFlowPanelHandlers({
           for (const k of kws) { if (text.includes(k)) s++; }
           if (s > bestScore) { bestScore = s; bestType = t; }
         }
-        const routing = { bug: 'gears', feature: 'nova', doc_update: 'index', refactor: 'gears', question: 'nova' };
-        const colors = { gears: '#f59e0b', nova: '#a855f7', index: '#3b82f6' };
-        const names = { gears: 'Gears', nova: 'Nova', index: 'Index' };
-        const persona = routing[bestType] || 'nova';
+        const routing = { bug: 'qa-engineer', feature: 'lead-engineer', doc_update: 'technical-writer', refactor: 'qa-engineer', question: 'lead-engineer' };
+        const colors = { 'qa-engineer': '#f59e0b', 'lead-engineer': '#a855f7', 'technical-writer': '#3b82f6' };
+        const names = { 'qa-engineer': 'QA Engineer', 'lead-engineer': 'Lead Engineer', 'technical-writer': 'Technical Writer' };
+        const persona = routing[bestType] || 'lead-engineer';
         previewEl.style.display = 'flex';
         previewEl.innerHTML =
           '<span style="font-size:10px;color:var(--text-secondary);">Auto-route:</span> ' +
@@ -1508,6 +2171,35 @@ const flowManager = createFlowPanelHandlers({
       handleDevExportError,
       handleDevImportError,
       renderUsageStats,
+      engineerRenderStatus,
+      engineerRenderSuggestions,
+      engineerRenderHistory,
+      engineerRenderPrompt,
+      engineerHandleDelegated,
+      engineerCheckSectors,
+      autopilotRenderStatus,
+      autopilotRenderStepResult,
+      autopilotRenderSessionPrompt,
+      autopilotRenderConfig,
+      gameuiRenderState,
+      gameuiRenderCatalog,
+      gameuiRenderEvent,
+      gameuiRenderThemes,
+      dbRenderConnectionList,
+      dbRenderSchema,
+      dbRenderQueryResult,
+      dbRenderTestResult,
+      chatSearchRenderResults,
+      commsRenderState,
+      commsRenderScanDetail,
+      commsRenderScanStarted,
+      commsRenderScanCompleted,
+      commsRenderPrompt,
+      opsRenderState,
+      opsRenderCommandOutput,
+      opsRenderRecentOps,
+      renderDiagnosticsResult,
+      renderDiagnosticsProgress,
       vscode,
       getPlanTemplates: () => planTemplates,
       setPlanTemplates: (value) => { planTemplates = value; uiState.planTemplates = value; },
@@ -1525,8 +2217,8 @@ const flowManager = createFlowPanelHandlers({
       initKbDropZone();
       initMainSplitter();
 
-      // Initialize to Chat tab with 50/50 split (chat + synthesis)
-      window.switchTab(TABS.CHAT);
+      // Initialize to Station tab (chat is always visible in persistent left panel)
+      window.switchTab(TABS.STATION);
 
       // Initialize Context Flow visualization (side-by-side panel)
       // Small delay to ensure D3 is loaded

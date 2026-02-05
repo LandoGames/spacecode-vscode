@@ -58,6 +58,71 @@ export async function handleUnityMessage(panel: any, message: any): Promise<bool
       return true;
     }
 
+    // Build Pipeline Integration (Phase 6.3)
+    case 'unityBuildCheck': {
+      if (!panel.coplayClient) {
+        panel._postMessage({ type: 'buildResult', success: false, error: 'Coplay MCP not connected' });
+        return true;
+      }
+
+      try {
+        panel._postMessage({ type: 'info', message: 'Checking Unity compile status...' });
+        const result = await panel.coplayClient.checkCompileErrors();
+
+        const hasErrors = !!(result?.hasErrors || result?.errors?.length);
+        const errors = result?.errors || [];
+
+        // Emit build result
+        panel._postMessage({
+          type: 'buildResult',
+          success: !hasErrors,
+          errorCount: errors.length,
+          errors: hasErrors ? errors : [],
+        });
+
+        // Play sound event
+        try {
+          const { SoundService } = await import('../../services/soundService');
+          const sound = SoundService.getInstance();
+          if (hasErrors) {
+            sound.play('buildFail');
+          } else {
+            sound.play('buildSuccess');
+          }
+        } catch { /* sound not available */ }
+
+        // Trigger engineer auto-suggest on build failure
+        if (hasErrors) {
+          try {
+            const { getEngineerEngine } = await import('../../../engineer');
+            const engine = getEngineerEngine();
+            if (engine) {
+              // Inject a build-failure context for the engineer
+              engine.injectEvent('buildFail', {
+                errorCount: errors.length,
+                errors: errors.slice(0, 5).map(e => typeof e === 'string' ? e : e.message || String(e)),
+              });
+
+              const status = engine.getStatus();
+              panel._postMessage({
+                type: 'engineerStatus',
+                health: status.health,
+                alertCount: status.alertCount,
+                topAction: status.topAction,
+              });
+              panel._postMessage({
+                type: 'engineerSuggestions',
+                suggestions: status.suggestions,
+              });
+            }
+          } catch { /* engineer not available */ }
+        }
+      } catch (err: any) {
+        panel._postMessage({ type: 'buildResult', success: false, error: err?.message || String(err) });
+      }
+      return true;
+    }
+
     // Legacy Unity MCP handlers (kept for backwards compatibility)
     case 'unityCheckConnection':
       await panel._checkUnityMCPAvailable(0, message.token);

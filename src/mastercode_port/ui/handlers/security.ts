@@ -9,9 +9,67 @@ export async function handleSecurityMessage(panel: any, message: any): Promise<b
       panel._postMessage({ type: 'securityScanStarted' });
       try {
         const result = await scanner.scan(message.options || {});
-        panel._postMessage({ type: 'securityScanResult', result });
+        const semgrepMode = await scanner.getSemgrepMode();
+        panel._postMessage({ type: 'securityScanResult', result, semgrepMode });
       } catch (err: any) {
         panel._postMessage({ type: 'securityScanError', error: err?.message || 'Scan failed' });
+      }
+      return true;
+    }
+
+    case 'securityScanWithProfile': {
+      const scanner = getSecurityScanner();
+      const profileId = message.profileId || 'security-full';
+      panel._postMessage({ type: 'securityScanStarted' });
+      try {
+        const result = await scanner.scanWithProfile(profileId);
+        const semgrepMode = await scanner.getSemgrepMode();
+        panel._postMessage({ type: 'securityScanResult', result, semgrepMode, profileId });
+      } catch (err: any) {
+        panel._postMessage({ type: 'securityScanError', error: err?.message || 'Profile scan failed' });
+      }
+      return true;
+    }
+
+    case 'securitySemgrepStatus': {
+      const scanner = getSecurityScanner();
+      try {
+        const semgrepStatus = await scanner.getSemgrepStatus();
+        const semgrepMode = await scanner.getSemgrepMode();
+        const rulesManager = scanner.getRulesManager();
+        const profiles = rulesManager?.getAllProfiles() || [];
+        const customRules = rulesManager?.listCustomRules() || [];
+        const relevantProfiles = rulesManager?.detectRelevantProfiles() || [];
+
+        panel._postMessage({
+          type: 'securitySemgrepStatus',
+          installed: semgrepStatus.installed,
+          version: semgrepStatus.version,
+          mode: semgrepMode,
+          profiles: profiles.map(p => ({ id: p.id, name: p.name, description: p.description })),
+          customRules,
+          relevantProfiles,
+        });
+      } catch (err: any) {
+        panel._postMessage({
+          type: 'securitySemgrepStatus',
+          installed: false,
+          mode: 'unavailable',
+          error: err?.message || 'Status check failed',
+        });
+      }
+      return true;
+    }
+
+    case 'securitySupplyChainScan': {
+      const scanner = getSecurityScanner();
+      panel._postMessage({ type: 'securityScanStarted' });
+      try {
+        const result = await scanner.scanWithProfile('supply-chain');
+        const semgrepMode = await scanner.getSemgrepMode();
+        panel._postMessage({ type: 'securityScanResult', result, semgrepMode, profileId: 'supply-chain' });
+      } catch (err: any) {
+        panel._postMessage({ type: 'securityScanError', error: err?.message || 'Supply chain scan failed' });
       }
       return true;
     }

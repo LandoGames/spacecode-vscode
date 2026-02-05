@@ -1,0 +1,114 @@
+rules:
+  - id: spacecode.unity.perf.find-in-update
+    patterns:
+      - pattern: |
+          void Update() { ... GameObject.Find(...); ... }
+      - pattern: |
+          void Update() { ... FindObjectOfType(...); ... }
+      - pattern: |
+          void Update() { ... FindObjectsOfType(...); ... }
+    message: >
+      Avoid using Find/FindObjectOfType in Update(). These are expensive O(n) operations
+      that run every frame. Cache the reference in Start() or Awake() instead.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.unity.perf.getcomponent-in-update
+    patterns:
+      - pattern: |
+          void Update() { ... GetComponent<$TYPE>(); ... }
+      - pattern: |
+          void FixedUpdate() { ... GetComponent<$TYPE>(); ... }
+      - pattern: |
+          void LateUpdate() { ... GetComponent<$TYPE>(); ... }
+    message: >
+      GetComponent<T>() called in Update/FixedUpdate/LateUpdate is expensive per-frame.
+      Cache the component reference in Start() or Awake().
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: HIGH
+      impact: MEDIUM
+
+  - id: spacecode.unity.perf.string-concat-in-update
+    pattern: |
+      void Update() { ... $A + $B + $C ... }
+    message: >
+      String concatenation in Update() creates garbage every frame.
+      Use StringBuilder or string interpolation, and consider caching the result.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: MEDIUM
+      impact: MEDIUM
+
+  - id: spacecode.unity.perf.new-allocation-in-update
+    patterns:
+      - pattern: |
+          void Update() { ... new List<$TYPE>(...); ... }
+      - pattern: |
+          void Update() { ... new Dictionary<$K, $V>(...); ... }
+      - pattern: |
+          void Update() { ... new $TYPE[...]; ... }
+    message: >
+      Heap allocation in Update() creates per-frame garbage and triggers GC spikes.
+      Pre-allocate collections in Start()/Awake() and reuse them.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.unity.perf.camera-main
+    pattern: Camera.main
+    message: >
+      Camera.main calls FindGameObjectsWithTag("MainCamera") internally.
+      Cache the reference in Start() or Awake() for better performance.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: HIGH
+      impact: LOW
+
+  - id: spacecode.unity.perf.tag-comparison
+    pattern: $OBJ.tag == $TAG
+    fix: $OBJ.CompareTag($TAG)
+    message: >
+      Direct tag comparison allocates a new string. Use CompareTag() instead,
+      which avoids garbage allocation.
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: HIGH
+      impact: LOW
+
+  - id: spacecode.unity.perf.sendmessage
+    patterns:
+      - pattern: SendMessage(...)
+      - pattern: BroadcastMessage(...)
+      - pattern: SendMessageUpwards(...)
+    message: >
+      SendMessage/BroadcastMessage uses reflection and is very slow.
+      Use direct method calls, UnityEvents, or an event system instead.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: performance
+      technology: [unity]
+      confidence: HIGH
+      impact: MEDIUM

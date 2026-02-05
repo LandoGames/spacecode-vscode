@@ -1,0 +1,140 @@
+rules:
+  - id: spacecode.csharp.security.sql-injection
+    patterns:
+      - pattern: |
+          $CMD.CommandText = $PREFIX + $INPUT + ...;
+      - pattern: |
+          new SqlCommand($PREFIX + $INPUT + ..., ...)
+      - pattern: |
+          $CMD.CommandText = $"...{$INPUT}...";
+    message: >
+      Potential SQL injection via string concatenation or interpolation.
+      Use parameterized queries: cmd.Parameters.AddWithValue("@param", value)
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      owasp: "A03:2021"
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.csharp.security.path-traversal
+    patterns:
+      - pattern: File.ReadAllText($PATH + ...)
+      - pattern: File.WriteAllText($PATH + ..., ...)
+      - pattern: new StreamReader($PATH + ...)
+      - pattern: Path.Combine($BASE, $USERINPUT)
+    message: >
+      Potential path traversal vulnerability. Validate and sanitize file paths
+      from user input. Use Path.GetFullPath() and verify the result is within
+      the expected directory.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      owasp: "A01:2021"
+      confidence: MEDIUM
+      impact: HIGH
+
+  - id: spacecode.csharp.security.command-injection
+    patterns:
+      - pattern: Process.Start($CMD + ...)
+      - pattern: |
+          $P.StartInfo.FileName = ...;
+          ...
+          $P.StartInfo.Arguments = $INPUT + ...;
+          ...
+          $P.Start();
+    message: >
+      Potential command injection. Never pass unsanitized user input to
+      Process.Start(). Validate and whitelist allowed commands/arguments.
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A03:2021"
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.csharp.security.weak-crypto
+    patterns:
+      - pattern: new MD5CryptoServiceProvider()
+      - pattern: MD5.Create()
+      - pattern: new SHA1CryptoServiceProvider()
+      - pattern: SHA1.Create()
+      - pattern: new DESCryptoServiceProvider()
+      - pattern: new RC2CryptoServiceProvider()
+    message: >
+      Weak cryptographic algorithm detected. MD5, SHA1, DES, and RC2 are
+      considered broken. Use SHA-256 or AES-256 instead.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-327"
+      owasp: "A02:2021"
+      confidence: HIGH
+      impact: MEDIUM
+
+  - id: spacecode.csharp.security.hardcoded-credentials
+    patterns:
+      - pattern: |
+          $VAR = "...password...";
+      - pattern: |
+          $VAR = "...secret...";
+      - pattern: |
+          $VAR = "...apikey...";
+      - pattern: |
+          password = "...";
+    message: >
+      Potential hardcoded credential detected. Move secrets to environment
+      variables, a secrets manager, or configuration files excluded from VCS.
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-798"
+      owasp: "A07:2021"
+      confidence: MEDIUM
+      impact: HIGH
+
+  - id: spacecode.csharp.security.insecure-deserialization
+    patterns:
+      - pattern: new BinaryFormatter()
+      - pattern: BinaryFormatter.$METHOD(...)
+      - pattern: new JavaScriptSerializer()
+    message: >
+      Insecure deserialization detected. BinaryFormatter and JavaScriptSerializer
+      are vulnerable to remote code execution. Use System.Text.Json or
+      Newtonsoft.Json with TypeNameHandling.None instead.
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-502"
+      owasp: "A08:2021"
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.csharp.security.http-no-tls
+    patterns:
+      - pattern: new HttpClient() { ... BaseAddress = new Uri("http://...") ... }
+      - pattern: |
+          "http://$DOMAIN..."
+    pattern-not: |
+      "http://localhost..."
+    pattern-not: |
+      "http://127.0.0.1..."
+    message: >
+      Insecure HTTP connection detected. Use HTTPS to encrypt data in transit.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-319"
+      owasp: "A02:2021"
+      confidence: MEDIUM
+      impact: MEDIUM

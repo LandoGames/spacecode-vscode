@@ -9,7 +9,7 @@ export function createRightPanelHandlers(deps) {
   } = deps;
 
   function setRightPanelMode(mode) {
-    const pane = document.getElementById('rightPane');
+    const pane = document.getElementById('stationSection');
     if (!pane) return;
     pane.dataset.panelMode = mode;
 
@@ -33,12 +33,15 @@ export function createRightPanelHandlers(deps) {
   }
 
   function updatePanelToggleButtons() {
+    // In V3 layout, station-scoped buttons show when Station tab is active,
+    // chat-scoped buttons are always hidden (chat is persistent left pane)
     document.querySelectorAll('.panel-toggle button[data-tab-scope]').forEach(btn => {
       const scope = btn.getAttribute('data-tab-scope');
       if (scope === 'station') {
         btn.style.display = (currentTab() === TABS.STATION) ? '' : 'none';
       } else if (scope === 'chat') {
-        btn.style.display = (currentTab() === TABS.CHAT) ? '' : 'none';
+        // Chat panel modes (flow/planning/+chat) only show when station is active
+        btn.style.display = (currentTab() === TABS.STATION) ? '' : 'none';
       }
     });
   }
@@ -54,16 +57,15 @@ export function createRightPanelHandlers(deps) {
   }
 
   function toggleContextFlowPanel() {
-    const rightPane = document.getElementById('rightPane');
-    const splitter = document.getElementById('mainSplitter');
-    if (!rightPane) return;
+    const stationSection = document.getElementById('stationSection');
+    if (!stationSection) return;
 
-    const isHidden = rightPane.style.display === 'none';
-    rightPane.style.display = isHidden ? 'flex' : 'none';
-    if (splitter) splitter.style.display = isHidden ? 'flex' : 'none';
-
+    const isHidden = !stationSection.classList.contains('active');
     if (isHidden) {
-      rightPane.dataset.panelMode = 'flow';
+      stationSection.classList.add('active');
+      stationSection.dataset.panelMode = 'flow';
+    } else {
+      stationSection.classList.remove('active');
     }
   }
 

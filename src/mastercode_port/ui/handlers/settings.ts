@@ -192,12 +192,29 @@ export async function handleSettingsMessage(panel: any, message: any): Promise<b
       await panel._sendDbStats();
       return true;
 
+    case 'getSoundSettings': {
+      const soundSettings = SoundService.getInstance().getSettings();
+      panel._postMessage({ type: 'soundSettings', ...soundSettings });
+      return true;
+    }
+
     case 'saveSoundSettings': {
       try {
-        await SoundService.getInstance().setEnabled(panel._context, !!message.enabled);
+        const patch: any = {};
+        if (typeof message.enabled === 'boolean') patch.enabled = message.enabled;
+        if (typeof message.volume === 'number') patch.volume = Math.max(0, Math.min(1, message.volume));
+        if (message.events && typeof message.events === 'object') patch.events = message.events;
+        await SoundService.getInstance().updateSettings(panel._context, patch);
+        panel._postMessage({ type: 'soundSettings', ...SoundService.getInstance().getSettings() });
       } catch (e) {
         console.error('[SpaceCode] saveSoundSettings error:', e);
       }
+      return true;
+    }
+
+    case 'previewSound': {
+      const vol = typeof message.volume === 'number' ? Math.max(0, Math.min(1, message.volume)) : 0.5;
+      SoundService.getInstance().play('notification', vol);
       return true;
     }
 

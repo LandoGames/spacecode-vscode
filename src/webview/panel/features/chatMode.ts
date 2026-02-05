@@ -14,10 +14,7 @@ export function createChatModeHandlers(deps) {
   } = deps;
 
   function updateChatModeSwitcherVisibility() {
-    const switcher = document.getElementById('chatModeSwitcher');
-    if (switcher) {
-      switcher.style.display = (getCurrentTab() === TABS.CHAT) ? 'block' : 'none';
-    }
+    // Quick-access icon bar removed in V3 redesign — no-op
   }
 
   function updateMastermindConfigVisibility() {
@@ -39,9 +36,6 @@ export function createChatModeHandlers(deps) {
     uiState.chatMode = modeName;
 
     const chatContainer = document.getElementById('chatContainer');
-    const primaryPanel = document.getElementById('chatPanelPrimary');
-    const rightPane = document.getElementById('rightPane');
-    const splitter = document.getElementById('mainSplitter');
     const contextFlowPanel = document.getElementById('contextFlowPanel');
     const chatModeToggles = document.getElementById('chatModeToggles');
 
@@ -49,26 +43,20 @@ export function createChatModeHandlers(deps) {
 
     switch (modeName) {
       case CHAT_MODES.SOLO:
-        if (primaryPanel) primaryPanel.style.flex = '1';
-        if (rightPane) {
-          rightPane.style.display = 'flex';
-          rightPane.style.flex = '1 1 50%';
+        // In V3, solo mode: restore station panel to its default mode
+        if (getCurrentTab() === TABS.STATION) {
+          restoreRightPanelModeForTab(TABS.STATION);
         }
-        restoreRightPanelModeForTab(TABS.CHAT);
-        if (splitter) splitter.style.display = 'none';
         if (contextFlowPanel) contextFlowPanel.style.display = 'none';
         if (chatModeToggles) chatModeToggles.style.display = 'none';
         break;
 
       case CHAT_MODES.PLANNING:
         if (chatContainer) chatContainer.classList.add('planning-mode');
-        if (primaryPanel) primaryPanel.style.flex = '1';
-        if (rightPane) {
-          rightPane.style.display = 'flex';
-          rightPane.style.flex = '1 1 50%';
+        // In V3, planning mode: show planning panel in station section
+        if (getCurrentTab() === TABS.STATION) {
+          setRightPanelMode('planning');
         }
-        setRightPanelMode('planning');
-        if (splitter) splitter.style.display = 'none';
         if (contextFlowPanel) contextFlowPanel.style.display = 'none';
         if (chatModeToggles) chatModeToggles.style.display = 'none';
         break;

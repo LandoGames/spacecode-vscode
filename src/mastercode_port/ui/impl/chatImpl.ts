@@ -97,7 +97,7 @@ export function createChatImpl(panel: any) {
     const provider = (mode === 'claude' || mode === 'gpt') ? mode : 'claude';
 
     // Load persona system prompt
-    const personaId = persona || 'nova';
+    const personaId = persona || 'lead-engineer';
     let personaPrompt = getPersonaPrompt(personaId);
     const identityPrompt = buildModelIdentityPrompt(provider);
     if (identityPrompt) {
@@ -257,12 +257,12 @@ export function createChatImpl(panel: any) {
         const sessionId = chatId || 'default';
         await messageStore.addMessage({
           sessionId, workspacePath, role: 'user', content: text,
-          tags: [persona || 'nova'], metadata: { provider },
+          tags: [persona || 'lead-engineer'], metadata: { provider },
         });
         if (result?.content) {
           await messageStore.addMessage({
             sessionId, workspacePath, role: 'assistant', content: result.content,
-            tags: [persona || 'nova'], metadata: { provider, model: result.model },
+            tags: [persona || 'lead-engineer'], metadata: { provider, model: result.model },
           });
         }
       } catch (memErr) {

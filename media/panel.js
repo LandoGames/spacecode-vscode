@@ -14,30 +14,50 @@
   };
   var TAB_PANEL_MODES = {
     [TABS.CHAT]: ["flow", "chat", "planning"],
-    [TABS.STATION]: ["station", "control"]
+    [TABS.STATION]: ["station", "control", "flow", "planning"]
   };
   var TAB_DEFAULT_MODE = {
     [TABS.CHAT]: "flow",
     [TABS.STATION]: "station"
   };
+  var TAB_SKILL_MAP = {
+    [TABS.STATION]: ["sector-analysis", "asmdef-check", "build-tools"],
+    [TABS.DASHBOARD]: ["project-health", "settings-access"],
+    [TABS.AGENTS]: ["agent-management", "task-delegation"],
+    [TABS.SKILLS]: ["skill-lookup", "doc-templates"]
+  };
+  var BUILTIN_NAV_COMMANDS = {
+    "/docs": { tab: "dashboard", subtab: "docs", label: "Open Docs panel" },
+    "/tickets": { tab: "dashboard", subtab: "tickets", label: "Open Tickets panel" },
+    "/station": { tab: "station", label: "Switch to Station" },
+    "/skills": { tab: "skills", label: "Switch to Skills" },
+    "/agents": { tab: "agents", label: "Switch to Agents" },
+    "/dashboard": { tab: "dashboard", label: "Switch to Dashboard" },
+    "/help": { tab: "", label: "List available commands", special: "help" }
+  };
   var PERSONA_MAP = {
-    chat: "nova",
-    station: "gears",
-    agents: "nova",
-    skills: "nova",
+    chat: "lead-engineer",
+    station: "qa-engineer",
+    agents: "lead-engineer",
+    skills: "lead-engineer",
     // Dashboard subtabs
-    "dashboard:docs": "index",
-    "dashboard:tickets": "triage",
-    "dashboard:db": "vault",
-    "dashboard:settings": "palette",
-    "dashboard:art": "palette"
+    "dashboard:docs": "technical-writer",
+    "dashboard:tickets": "issue-triager",
+    "dashboard:db": "database-engineer",
+    "dashboard:settings": "art-director",
+    "dashboard:art": "art-director"
   };
   var uiState = {
-    currentTab: "chat",
-    currentPersona: "nova",
+    currentTab: "station",
+    currentPersona: "lead-engineer",
+    personaManualOverride: false,
+    autoSkills: [],
+    manualSkills: [],
+    activeSkins: [],
+    chatCollapsed: false,
     dashboardSubtab: "docs",
     chatMode: "solo",
-    mode: "chat",
+    mode: "station",
     attachedImages: [],
     contextPreview: "",
     docTargets: [],
@@ -475,7 +495,7 @@
       refactor: ["refactor", "clean", "rename", "restructure", "optimize", "simplify", "extract", "move", "split"],
       question: ["question", "how", "why", "what", "help", "unclear", "understand"]
     };
-    const PERSONA_LABELS = {
+    const PERSONA_LABELS3 = {
       gears: { name: "Gears", color: "#f59e0b" },
       nova: { name: "Nova", color: "#a855f7" },
       index: { name: "Index", color: "#3b82f6" },
@@ -501,8 +521,8 @@
       return bestType;
     }
     function getRoutedPersona(ticketType) {
-      const routing = { bug: "gears", feature: "nova", doc_update: "index", refactor: "gears", question: "nova" };
-      return routing[ticketType] || "nova";
+      const routing = { bug: "qa-engineer", feature: "lead-engineer", doc_update: "technical-writer", refactor: "qa-engineer", question: "lead-engineer" };
+      return routing[ticketType] || "lead-engineer";
     }
     function updateTicketTypePreview2() {
       const titleEl = document.getElementById("ticketTitleMain");
@@ -518,13 +538,15 @@
       }
       const type = detectTicketType(title, desc);
       const persona = getRoutedPersona(type);
-      const info = PERSONA_LABELS[persona] || { name: persona, color: "#888" };
+      const info = PERSONA_LABELS3[persona] || { name: persona, color: "#888" };
       previewEl.style.display = "flex";
       previewEl.innerHTML = '<span style="font-size:10px;color:var(--text-secondary);">Auto-route:</span> <span style="font-size:10px;font-weight:600;color:' + info.color + ';">' + type.replace("_", " ").toUpperCase() + " \u2192 " + info.name + "</span>";
     }
     function showTicketsPanel2() {
-      document.getElementById("chatSection").style.display = "none";
       document.getElementById("agentsSection").style.display = "none";
+      const stationSection = document.getElementById("stationSection");
+      if (stationSection)
+        stationSection.classList.remove("active");
       document.getElementById("ticketsSection").style.display = "flex";
       document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
       const ticketsBtn = document.querySelector(".mode-btn.tickets");
@@ -534,7 +556,6 @@
     }
     function hideTicketsPanel2() {
       document.getElementById("ticketsSection").style.display = "none";
-      document.getElementById("chatSection").style.display = "flex";
     }
     function toggleTicketFormMain2() {
       const formPanel = document.getElementById("ticketFormPanel");
@@ -583,7 +604,7 @@
         previewEl.style.display = "none";
       toggleTicketFormMain2();
       const persona = getRoutedPersona(ticketType);
-      const info = PERSONA_LABELS[persona] || { name: persona };
+      const info = PERSONA_LABELS3[persona] || { name: persona };
       shipSetStatus2("Ticket created \u2192 routed to " + info.name);
     }
     function filterTickets2(filter) {
@@ -832,6 +853,7 @@
       shipSetStatus: shipSetStatus2,
       setDashboardSubtab,
       setCurrentPersona,
+      getPersonaManualOverride,
       PERSONA_MAP: PERSONA_MAP2
     } = deps;
     let dashboardMetrics = {};
@@ -1001,9 +1023,11 @@
       });
       if (setDashboardSubtab)
         setDashboardSubtab(subtab);
-      const persona = PERSONA_MAP2 && PERSONA_MAP2["dashboard:" + subtab];
-      if (persona && setCurrentPersona)
-        setCurrentPersona(persona);
+      if (!getPersonaManualOverride || !getPersonaManualOverride()) {
+        const persona = PERSONA_MAP2 && PERSONA_MAP2["dashboard:" + subtab];
+        if (persona && setCurrentPersona)
+          setCurrentPersona(persona);
+      }
       if (subtab === "settings") {
         vscode2.postMessage({ type: "getSettings" });
         vscode2.postMessage({ type: "getCliStatus" });
@@ -1713,6 +1737,13 @@
       const chatSessions2 = getChatSessions();
       if (!text)
         return;
+      if (text.startsWith("/") && typeof window.tryNavigationCommand === "function") {
+        if (window.tryNavigationCommand(text)) {
+          input.value = "";
+          autoResize2(input);
+          return;
+        }
+      }
       if (chatSessions2[chatId]?.isGenerating) {
         stopConversation2();
         setTimeout(() => {
@@ -2213,10 +2244,6 @@
       setRightPanelMode: setRightPanelMode2
     } = deps;
     function updateChatModeSwitcherVisibility2() {
-      const switcher = document.getElementById("chatModeSwitcher");
-      if (switcher) {
-        switcher.style.display = getCurrentTab() === TABS2.CHAT ? "block" : "none";
-      }
     }
     function updateMastermindConfigVisibility2() {
       updateChatModeSwitcherVisibility2();
@@ -2234,24 +2261,15 @@
       setCurrentChatMode(modeName);
       uiState2.chatMode = modeName;
       const chatContainer = document.getElementById("chatContainer");
-      const primaryPanel = document.getElementById("chatPanelPrimary");
-      const rightPane = document.getElementById("rightPane");
-      const splitter = document.getElementById("mainSplitter");
       const contextFlowPanel = document.getElementById("contextFlowPanel");
       const chatModeToggles = document.getElementById("chatModeToggles");
       if (chatContainer)
         chatContainer.classList.remove("planning-mode");
       switch (modeName) {
         case CHAT_MODES2.SOLO:
-          if (primaryPanel)
-            primaryPanel.style.flex = "1";
-          if (rightPane) {
-            rightPane.style.display = "flex";
-            rightPane.style.flex = "1 1 50%";
+          if (getCurrentTab() === TABS2.STATION) {
+            restoreRightPanelModeForTab2(TABS2.STATION);
           }
-          restoreRightPanelModeForTab2(TABS2.CHAT);
-          if (splitter)
-            splitter.style.display = "none";
           if (contextFlowPanel)
             contextFlowPanel.style.display = "none";
           if (chatModeToggles)
@@ -2260,15 +2278,9 @@
         case CHAT_MODES2.PLANNING:
           if (chatContainer)
             chatContainer.classList.add("planning-mode");
-          if (primaryPanel)
-            primaryPanel.style.flex = "1";
-          if (rightPane) {
-            rightPane.style.display = "flex";
-            rightPane.style.flex = "1 1 50%";
+          if (getCurrentTab() === TABS2.STATION) {
+            setRightPanelMode2("planning");
           }
-          setRightPanelMode2("planning");
-          if (splitter)
-            splitter.style.display = "none";
           if (contextFlowPanel)
             contextFlowPanel.style.display = "none";
           if (chatModeToggles)
@@ -3239,6 +3251,7 @@
       if (panelName === "settings") {
         vscode2.postMessage({ type: "getSettings" });
         vscode2.postMessage({ type: "getCliStatus" });
+        vscode2.postMessage({ type: "getSoundSettings" });
       }
     }
     function closeSettingsPanel2() {
@@ -5437,7 +5450,7 @@
       TAB_DEFAULT_MODE: TAB_DEFAULT_MODE2
     } = deps;
     function setRightPanelMode2(mode) {
-      const pane = document.getElementById("rightPane");
+      const pane = document.getElementById("stationSection");
       if (!pane)
         return;
       pane.dataset.panelMode = mode;
@@ -5464,7 +5477,7 @@
         if (scope === "station") {
           btn.style.display = currentTab2() === TABS2.STATION ? "" : "none";
         } else if (scope === "chat") {
-          btn.style.display = currentTab2() === TABS2.CHAT ? "" : "none";
+          btn.style.display = currentTab2() === TABS2.STATION ? "" : "none";
         }
       });
     }
@@ -5478,16 +5491,15 @@
       }
     }
     function toggleContextFlowPanel2() {
-      const rightPane = document.getElementById("rightPane");
-      const splitter = document.getElementById("mainSplitter");
-      if (!rightPane)
+      const stationSection = document.getElementById("stationSection");
+      if (!stationSection)
         return;
-      const isHidden = rightPane.style.display === "none";
-      rightPane.style.display = isHidden ? "flex" : "none";
-      if (splitter)
-        splitter.style.display = isHidden ? "flex" : "none";
+      const isHidden = !stationSection.classList.contains("active");
       if (isHidden) {
-        rightPane.dataset.panelMode = "flow";
+        stationSection.classList.add("active");
+        stationSection.dataset.panelMode = "flow";
+      } else {
+        stationSection.classList.remove("active");
       }
     }
     function toggleSwarmSidebar2() {
@@ -5731,8 +5743,8 @@
 
   // src/webview/panel/features/controlTabs.ts
   function createControlTabsHandlers(deps) {
-    const { unityCheckConnection: unityCheckConnection2, onSectorsTabOpen } = deps;
-    const TAB_IDS = ["info", "sectors", "ops", "security", "quality", "unity"];
+    const { unityCheckConnection: unityCheckConnection2, onSectorsTabOpen, onEngineerTabOpen, onCommsTabOpen, onInfraTabOpen, onDiagnosticsTabOpen: onDiagnosticsTabOpen2 } = deps;
+    const TAB_IDS = ["info", "sectors", "ops", "security", "quality", "diagnostics", "unity", "gameui", "engineer", "comms", "infra"];
     function switchControlTab2(tab) {
       for (const id of TAB_IDS) {
         const capitalized = id.charAt(0).toUpperCase() + id.slice(1);
@@ -5751,11 +5763,19 @@
       if (selectedBtn)
         selectedBtn.classList.add("active");
       if (selectedPanel)
-        selectedPanel.style.display = "block";
+        selectedPanel.style.display = "flex";
       if (tab === "sectors" && typeof onSectorsTabOpen === "function") {
         onSectorsTabOpen();
       } else if (tab === "unity") {
         unityCheckConnection2();
+      } else if (tab === "engineer" && typeof onEngineerTabOpen === "function") {
+        onEngineerTabOpen();
+      } else if (tab === "comms" && typeof onCommsTabOpen === "function") {
+        onCommsTabOpen();
+      } else if (tab === "infra" && typeof onInfraTabOpen === "function") {
+        onInfraTabOpen();
+      } else if (tab === "diagnostics" && typeof onDiagnosticsTabOpen2 === "function") {
+        onDiagnosticsTabOpen2();
       }
       localStorage.setItem("spacecode.controlTab", tab);
     }
@@ -5763,41 +5783,66 @@
   }
 
   // src/webview/panel/features/splitter.ts
-  function initMainSplitter() {
-    const splitter = document.getElementById("mainSplitter");
-    const mainSplit = document.querySelector(".main-split");
-    const rightPane = document.querySelector(".right-pane");
-    if (!splitter || !mainSplit || !rightPane)
+  function initChatSplitter() {
+    const splitter = document.getElementById("chatSplitter");
+    const container = document.querySelector(".main-split");
+    const chatPane = document.getElementById("chatPane");
+    if (!splitter || !container || !chatPane)
       return;
-    const STORAGE_KEY = "spacecode.stationPaneWidthPx";
+    const STORAGE_KEY = "spacecode.chatPaneWidthPct";
+    const MIN_PCT = 20;
+    const MAX_PCT = 50;
+    const MIN_CHAT_PX = 250;
+    const MIN_CONTENT_PX = 300;
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && !Number.isNaN(parseInt(saved, 10))) {
-      rightPane.style.flex = "0 0 " + parseInt(saved, 10) + "px";
+    if (saved && !Number.isNaN(parseFloat(saved))) {
+      const pct = Math.max(MIN_PCT, Math.min(MAX_PCT, parseFloat(saved)));
+      chatPane.style.flex = `0 0 ${pct}%`;
     }
     let dragging = false;
     splitter.addEventListener("mousedown", (e) => {
       dragging = true;
       document.body.classList.add("resizing");
+      splitter.classList.add("dragging");
       e.preventDefault();
     });
     window.addEventListener("mousemove", (e) => {
       if (!dragging)
         return;
-      const rect = mainSplit.getBoundingClientRect();
-      const width = rect.right - e.clientX;
-      const clamped = Math.max(320, Math.min(900, width));
-      rightPane.style.flex = "0 0 " + clamped + "px";
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const pct = x / rect.width * 100;
+      const chatPx = pct / 100 * rect.width;
+      const contentPx = rect.width - chatPx - 4;
+      if (chatPx < MIN_CHAT_PX || contentPx < MIN_CONTENT_PX) {
+        if (chatPx < MIN_CHAT_PX && typeof window.toggleChatCollapse === "function") {
+          if (!chatPane.classList.contains("collapsed")) {
+            window.toggleChatCollapse();
+            dragging = false;
+            document.body.classList.remove("resizing");
+            splitter.classList.remove("dragging");
+          }
+        }
+        return;
+      }
+      const clamped = Math.max(MIN_PCT, Math.min(MAX_PCT, pct));
+      chatPane.style.flex = `0 0 ${clamped}%`;
     });
     window.addEventListener("mouseup", () => {
       if (!dragging)
         return;
       dragging = false;
       document.body.classList.remove("resizing");
-      const current = parseInt(getComputedStyle(rightPane).width || "420", 10);
-      if (!Number.isNaN(current))
-        localStorage.setItem(STORAGE_KEY, String(current));
+      splitter.classList.remove("dragging");
+      const containerWidth = container.getBoundingClientRect().width;
+      const chatWidth = chatPane.getBoundingClientRect().width;
+      if (containerWidth > 0) {
+        const pct = (chatWidth / containerWidth * 100).toFixed(1);
+        localStorage.setItem(STORAGE_KEY, pct);
+      }
     });
   }
+  var initMainSplitter = initChatSplitter;
 
   // src/webview/panel/features/tabs.ts
   function createTabHandlers(deps) {
@@ -5807,6 +5852,7 @@
       setCurrentTab,
       setCurrentMode,
       setCurrentPersona,
+      getPersonaManualOverride,
       getDashboardSubtab,
       restoreRightPanelModeForTab: restoreRightPanelModeForTab2,
       updateChatModeSwitcherVisibility: updateChatModeSwitcherVisibility2,
@@ -5826,16 +5872,11 @@
     }
     function switchTab2(tabName) {
       console.log("[SpaceCode UI] switchTab called with:", tabName);
-      const chatSection = document.getElementById("chatSection");
       const agentsSection = document.getElementById("agentsSection");
       const ticketsSection = document.getElementById("ticketsSection");
       const skillsSection = document.getElementById("skillsSection");
       const dashboardSection = document.getElementById("dashboardSection");
-      const rightPane = document.getElementById("rightPane");
-      const mainSplitter = document.getElementById("mainSplitter");
-      const leftPane = document.querySelector(".left-pane");
-      if (chatSection)
-        chatSection.style.display = "none";
+      const stationSection = document.getElementById("stationSection");
       if (agentsSection)
         agentsSection.style.display = "none";
       if (ticketsSection)
@@ -5844,54 +5885,24 @@
         skillsSection.style.display = "none";
       if (dashboardSection)
         dashboardSection.style.display = "none";
+      if (stationSection)
+        stationSection.classList.remove("active");
       document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
       const activeBtn = document.querySelector(`.mode-btn[data-tab="${tabName}"]`);
       if (activeBtn)
         activeBtn.classList.add("active");
       setCurrentTab(tabName);
       setCurrentMode(tabName);
-      const personaKey = tabName === "dashboard" ? `dashboard:${getDashboardSubtab()}` : tabName;
-      const persona = PERSONA_MAP2 && PERSONA_MAP2[personaKey] || PERSONA_MAP2[tabName] || "nova";
-      setCurrentPersona(persona);
-      if (rightPane)
-        rightPane.style.display = "none";
-      if (mainSplitter)
-        mainSplitter.style.display = "none";
-      if (leftPane)
-        leftPane.style.flex = "1";
-      const contextFlowPanel = document.getElementById("contextFlowPanel");
+      if (!getPersonaManualOverride()) {
+        const personaKey = tabName === "dashboard" ? `dashboard:${getDashboardSubtab()}` : tabName;
+        const persona = PERSONA_MAP2 && PERSONA_MAP2[personaKey] || PERSONA_MAP2[tabName] || "lead-engineer";
+        setCurrentPersona(persona);
+      }
       switch (tabName) {
-        case TABS2.CHAT:
-          if (chatSection)
-            chatSection.style.display = "flex";
-          if (leftPane)
-            leftPane.style.flex = "1 1 50%";
-          if (rightPane) {
-            rightPane.style.display = "flex";
-            rightPane.style.flex = "1 1 50%";
-          }
-          restoreRightPanelModeForTab2(TABS2.CHAT);
-          if (mainSplitter)
-            mainSplitter.style.display = "none";
-          if (contextFlowPanel)
-            contextFlowPanel.style.display = "none";
-          updateChatModeSwitcherVisibility2();
-          break;
         case TABS2.STATION:
-          if (rightPane)
-            rightPane.style.display = "flex";
-          if (mainSplitter)
-            mainSplitter.style.display = "block";
-          if (leftPane)
-            leftPane.style.flex = "0 0 350px";
-          if (chatSection)
-            chatSection.style.display = "flex";
-          if (contextFlowPanel)
-            contextFlowPanel.style.display = "none";
+          if (stationSection)
+            stationSection.classList.add("active");
           restoreRightPanelModeForTab2(TABS2.STATION);
-          const switcher = document.getElementById("chatModeSwitcher");
-          if (switcher)
-            switcher.style.display = "none";
           break;
         case TABS2.AGENTS:
           if (agentsSection)
@@ -5902,8 +5913,6 @@
         case TABS2.SKILLS:
           if (skillsSection) {
             skillsSection.style.display = "flex";
-          } else if (chatSection) {
-            chatSection.style.display = "flex";
           }
           vscode2.postMessage({ type: "getSkills" });
           break;
@@ -5938,17 +5947,17 @@
     }
     function estimateHistoryTokens(history) {
       let total = 0;
-      for (const msg of history || []) {
-        total += estimateTokens(msg.content || "");
+      for (const msg2 of history || []) {
+        total += estimateTokens(msg2.content || "");
       }
       return total;
     }
     function estimateHistoryTokenBreakdown(history) {
       let input = 0;
       let output = 0;
-      for (const msg of history || []) {
-        const tokens = estimateTokens(msg.content || "");
-        if (msg.role === "assistant") {
+      for (const msg2 of history || []) {
+        const tokens = estimateTokens(msg2.content || "");
+        if (msg2.role === "assistant") {
           output += tokens;
         } else {
           input += tokens;
@@ -7633,14 +7642,14 @@
           distance: 60 + (1 - (chunk.similarity || 0.5)) * 80
         });
       });
-      (contextData.chatHistory || []).forEach((msg, i) => {
+      (contextData.chatHistory || []).forEach((msg2, i) => {
         const nodeId = `chat-${i}`;
         nodes.push({
           id: nodeId,
           type: "chat",
-          label: msg.role === "user" ? "User" : "AI",
-          size: 6 + Math.min(msg.tokens || 50, 300) / 40,
-          tokens: msg.tokens || 0
+          label: msg2.role === "user" ? "User" : "AI",
+          size: 6 + Math.min(msg2.tokens || 50, 300) / 40,
+          tokens: msg2.tokens || 0
         });
         links.push({
           source: "query",
@@ -7826,6 +7835,120 @@
     };
   }
 
+  // src/webview/panel/features/chatStore.ts
+  var PERSONA_COLORS = {
+    "lead-engineer": "#a855f7",
+    "qa-engineer": "#f59e0b",
+    "technical-writer": "#3b82f6",
+    "issue-triager": "#10b981",
+    "database-engineer": "#22c55e",
+    "art-director": "#ec4899"
+  };
+  var PERSONA_LABELS = {
+    "lead-engineer": "Lead Engineer",
+    "qa-engineer": "QA Engineer",
+    "technical-writer": "Technical Writer",
+    "issue-triager": "Issue Triager",
+    "database-engineer": "Database Engineer",
+    "art-director": "Art Director"
+  };
+  function createChatStore(deps) {
+    const { uiState: uiState2, PERSONA_MAP: PERSONA_MAP2, vscode: vscode2 } = deps;
+    function getActivePersona() {
+      return uiState2.currentPersona || "lead-engineer";
+    }
+    function isManualOverride() {
+      return !!uiState2.personaManualOverride;
+    }
+    function getAutoSkills() {
+      return uiState2.autoSkills || [];
+    }
+    function getManualSkills() {
+      return uiState2.manualSkills || [];
+    }
+    function getCombinedSkills() {
+      return [.../* @__PURE__ */ new Set([...getAutoSkills(), ...getManualSkills()])];
+    }
+    function getPersonaColor(personaId) {
+      return PERSONA_COLORS[personaId || getActivePersona()] || "#a855f7";
+    }
+    function getPersonaLabel(personaId) {
+      return PERSONA_LABELS[personaId || getActivePersona()] || (personaId || "Lead Engineer");
+    }
+    function setPersona(personaId, manual = false) {
+      uiState2.currentPersona = personaId;
+      uiState2.personaManualOverride = manual;
+      if (manual) {
+        vscode2.postMessage({ type: "setPersona", personaId });
+      }
+      notifyListeners();
+    }
+    function clearOverride(currentTab2) {
+      uiState2.personaManualOverride = false;
+      const personaKey = currentTab2 === "dashboard" ? `dashboard:${uiState2.dashboardSubtab || "docs"}` : currentTab2;
+      const persona = PERSONA_MAP2 && PERSONA_MAP2[personaKey] || PERSONA_MAP2[currentTab2] || "lead-engineer";
+      uiState2.currentPersona = persona;
+      notifyListeners();
+    }
+    function setAutoSkills(skills) {
+      uiState2.autoSkills = skills;
+      notifyListeners();
+    }
+    function addManualSkill(skillId) {
+      const current = uiState2.manualSkills || [];
+      if (!current.includes(skillId)) {
+        uiState2.manualSkills = [...current, skillId];
+        notifyListeners();
+      }
+    }
+    function removeManualSkill(skillId) {
+      uiState2.manualSkills = (uiState2.manualSkills || []).filter((s) => s !== skillId);
+      notifyListeners();
+    }
+    const listeners = [];
+    function subscribe(fn) {
+      listeners.push(fn);
+      return () => {
+        const idx = listeners.indexOf(fn);
+        if (idx >= 0)
+          listeners.splice(idx, 1);
+      };
+    }
+    function notifyListeners() {
+      const state = getSnapshot();
+      listeners.forEach((fn) => fn(state));
+    }
+    function getSnapshot() {
+      return {
+        activePersona: getActivePersona(),
+        manualOverride: isManualOverride(),
+        autoSkills: getAutoSkills(),
+        manualSkills: getManualSkills(),
+        combinedSkills: getCombinedSkills(),
+        personaColor: getPersonaColor(),
+        personaLabel: getPersonaLabel()
+      };
+    }
+    return {
+      getActivePersona,
+      isManualOverride,
+      getAutoSkills,
+      getManualSkills,
+      getCombinedSkills,
+      getPersonaColor,
+      getPersonaLabel,
+      setPersona,
+      clearOverride,
+      setAutoSkills,
+      addManualSkill,
+      removeManualSkill,
+      subscribe,
+      getSnapshot,
+      PERSONA_COLORS,
+      PERSONA_LABELS
+    };
+  }
+
   // src/webview/panel/features/sectorMap.ts
   function createSectorMapHandlers(deps) {
     const { vscode: vscode2, escapeHtml: escapeHtml2 } = deps;
@@ -7914,6 +8037,8 @@
         graphNodes = [];
         const centerId = opts.centerId || "core";
         const template = POSITION_TEMPLATES[opts.layoutTemplate || "rpg"] || {};
+        const scaleX = W * 0.5;
+        const scaleY = H * 0.5;
         const scale = Math.min(W, H) * 0.5;
         allNodes.forEach((s) => {
           const tpl = template[s.id];
@@ -7921,8 +8046,8 @@
           if (tpl) {
             graphNodes.push({
               ...s,
-              x: tpl.x * scale,
-              y: tpl.y * scale,
+              x: tpl.x * scaleX * 0.92,
+              y: tpl.y * scaleY * 0.85,
               radius: isCenter ? opts.coreRadius : tpl.ring === 1 ? opts.ring1Radius : opts.ring2Radius,
               ring: tpl.ring
             });
@@ -8083,7 +8208,10 @@
             ctx.quadraticCurveTo(mx, my, x2, y2);
             ctx.strokeStyle = grad;
             ctx.lineWidth = hoveredNode && (hoveredNode.id === n.id || hoveredNode.id === depId) ? 2 : 1;
+            const bothHaveAsmdef = n.scripts > 0 && dep.scripts > 0;
+            ctx.setLineDash(bothHaveAsmdef ? [] : [6, 4]);
             ctx.stroke();
+            ctx.setLineDash([]);
           });
         });
         particles.forEach((p) => {
@@ -8273,10 +8401,10 @@
       }
       initStars();
       resize();
-      const resizeObserver = new ResizeObserver(() => {
+      const resizeObserver2 = new ResizeObserver(() => {
         resize();
       });
-      resizeObserver.observe(canvasEl.parentElement || canvasEl);
+      resizeObserver2.observe(canvasEl.parentElement || canvasEl);
       return {
         setData,
         start,
@@ -8330,6 +8458,13 @@
         sectorMapInstance = null;
       }
     }
+    function resizeSectorMap2() {
+      if (sectorMapInstance) {
+        requestAnimationFrame(() => {
+          sectorMapInstance.resize();
+        });
+      }
+    }
     function requestSectorMapData2() {
       vscode2.postMessage({ type: "sectorMapData" });
     }
@@ -8375,10 +8510,1529 @@
       initSectorMap: initSectorMap2,
       renderSectorMap: renderSectorMap2,
       destroySectorMap: destroySectorMap2,
+      resizeSectorMap: resizeSectorMap2,
       requestSectorMapData: requestSectorMapData2,
       getDefaultSectorData: getDefaultSectorData2,
       // AI Flow orbital mode
       initAiOrbitalFlow: initAiOrbitalFlow2
+    };
+  }
+
+  // src/webview/panel/features/engineer.ts
+  function createEngineerHandlers(deps) {
+    const { vscode: vscode2, escapeHtml: escapeHtml2 } = deps;
+    let _showAll = false;
+    let _currentSuggestions = [];
+    function engineerRenderStatus2(data) {
+      const indicator = document.getElementById("engineerHealthIndicator");
+      const statusText = document.getElementById("engineerStatusText");
+      const topAction = document.getElementById("engineerTopAction");
+      const alertBadge = document.getElementById("engineerAlertBadge");
+      const healthBig = document.getElementById("engineerHealthBig");
+      const warningCount = document.getElementById("engineerWarningCount");
+      if (indicator) {
+        indicator.className = "engineer-health-indicator " + (data.health || "ok");
+      }
+      const healthLabels = { ok: "Healthy", warn: "Warning", critical: "Critical" };
+      if (statusText)
+        statusText.textContent = healthLabels[data.health] || "Unknown";
+      if (topAction)
+        topAction.textContent = data.topAction || "No pending actions";
+      if (alertBadge) {
+        if (data.alertCount > 0) {
+          alertBadge.style.display = "inline-block";
+          alertBadge.textContent = String(data.alertCount);
+        } else {
+          alertBadge.style.display = "none";
+        }
+      }
+      if (healthBig) {
+        healthBig.className = "engineer-health-big " + (data.health || "ok");
+        healthBig.textContent = healthLabels[data.health] || "Unknown";
+      }
+      if (warningCount) {
+        warningCount.textContent = data.alertCount > 0 ? `${data.alertCount} alert${data.alertCount > 1 ? "s" : ""}` : "No alerts";
+      }
+    }
+    function engineerRenderSuggestions2(suggestions) {
+      _currentSuggestions = suggestions || [];
+      const list = document.getElementById("engineerSuggestionsList");
+      const empty = document.getElementById("engineerSuggestionsEmpty");
+      const warningList = document.getElementById("engineerWarningList");
+      const visible = _showAll ? _currentSuggestions : _currentSuggestions.filter((s) => s.score >= 5);
+      if (!list)
+        return;
+      if (visible.length === 0) {
+        list.innerHTML = "";
+        if (empty)
+          empty.style.display = "block";
+        if (warningList)
+          warningList.innerHTML = "";
+        return;
+      }
+      if (empty)
+        empty.style.display = "none";
+      if (warningList) {
+        const warnings = visible.filter((s) => s.risk !== "low");
+        if (warnings.length > 0) {
+          warningList.innerHTML = warnings.slice(0, 3).map(
+            (s) => `<div style="margin-bottom:2px;">- ${escapeHtml2(s.title)}</div>`
+          ).join("");
+        } else {
+          warningList.innerHTML = '<div style="color:var(--text-secondary);">No warnings.</div>';
+        }
+      }
+      list.innerHTML = visible.map((s, i) => {
+        const riskColors = { low: "#22c55e", med: "#f59e0b", high: "#ef4444" };
+        const riskColor = riskColors[s.risk] || "#6b7280";
+        const sourceLabel = s.source === "ai" ? '<span style="color:#8b5cf6; font-size:9px; margin-left:4px;">[AI]</span>' : "";
+        const sectorLabel = s.sectorId ? `<span style="color:var(--text-secondary); font-size:9px; margin-left:4px;">${escapeHtml2(s.sectorId)}</span>` : "";
+        return `
+        <div class="engineer-suggestion-card" data-suggestion-id="${escapeHtml2(s.id)}">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--text-primary);">
+                ${i + 1}) ${escapeHtml2(s.title)}${sourceLabel}${sectorLabel}
+              </div>
+              <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">
+                ${escapeHtml2(s.why)}
+              </div>
+              <div style="display:flex; gap:8px; font-size:9px; margin-top:4px; color:var(--text-secondary);">
+                <span style="color:${riskColor};">Risk: ${s.risk}</span>
+                <span>Confidence: ${s.confidence}</span>
+                <span>Source: ${s.source}</span>
+              </div>
+            </div>
+            <div style="font-size:11px; font-weight:700; color:var(--text-primary); min-width:36px; text-align:right;">
+              ${s.score}
+            </div>
+          </div>
+          <div style="display:flex; gap:4px; margin-top:6px;">
+            ${s.actionType === "validate" ? `<button class="btn-primary engineer-action-btn" onclick="engineerAction('${escapeHtml2(s.id)}', 'run')" style="padding:3px 8px; font-size:10px;">Run</button>` : ""}
+            <button class="btn-secondary engineer-action-btn" onclick="engineerAction('${escapeHtml2(s.id)}', 'open')" style="padding:3px 8px; font-size:10px;">Open</button>
+            <button class="btn-secondary engineer-action-btn" onclick="engineerAction('${escapeHtml2(s.id)}', 'defer')" style="padding:3px 8px; font-size:10px;">Defer</button>
+            <button class="btn-secondary engineer-action-btn" onclick="engineerAction('${escapeHtml2(s.id)}', 'dismiss')" style="padding:3px 8px; font-size:10px;">Dismiss</button>
+          </div>
+        </div>
+      `;
+      }).join("");
+    }
+    function engineerRenderHistory2(history) {
+      const list = document.getElementById("engineerHistoryList");
+      if (!list)
+        return;
+      if (!history || history.length === 0) {
+        list.innerHTML = '<div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:8px;">No history yet.</div>';
+        return;
+      }
+      const decisionIcons = { accepted: "\u2705", deferred: "\u23F8", dismissed: "\u274C" };
+      const decisionColors = { accepted: "#22c55e", deferred: "#f59e0b", dismissed: "#6b7280" };
+      list.innerHTML = history.slice(0, 20).map((h) => {
+        const time = new Date(h.decidedAt);
+        const timeStr = time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const icon = decisionIcons[h.decision] || "\u2022";
+        const color = decisionColors[h.decision] || "var(--text-secondary)";
+        return `<div class="engineer-history-row">
+        <span style="color:${color};">${icon}</span>
+        <span style="font-size:10px; color:var(--text-primary); flex:1;">${escapeHtml2(h.title)}</span>
+        <span style="font-size:9px; color:var(--text-secondary);">${timeStr}</span>
+      </div>`;
+      }).join("");
+    }
+    function engineerRenderPrompt2(data) {
+      const bar = document.getElementById("engineerPromptBar");
+      const text = document.getElementById("engineerPromptText");
+      const actions = document.getElementById("engineerPromptActions");
+      if (!bar || !text || !actions)
+        return;
+      text.textContent = data.message;
+      actions.innerHTML = (data.actions || []).map((a) => {
+        const action = a.toLowerCase() === "dismiss" ? "dismiss" : "open";
+        const sid = data.suggestionId || "";
+        return `<button class="btn-secondary" onclick="engineerPromptAction('${escapeHtml2(sid)}', '${action}')" style="padding:2px 8px; font-size:10px;">${escapeHtml2(a)}</button>`;
+      }).join("");
+      bar.style.display = "flex";
+    }
+    function engineerDismissPrompt2() {
+      const bar = document.getElementById("engineerPromptBar");
+      if (bar)
+        bar.style.display = "none";
+    }
+    function engineerToggleShowAll2(showAll) {
+      _showAll = showAll;
+      engineerRenderSuggestions2(_currentSuggestions);
+    }
+    function engineerAction2(suggestionId, action) {
+      vscode2.postMessage({ type: "engineerAction", suggestionId, action });
+    }
+    function engineerRefresh2() {
+      vscode2.postMessage({ type: "engineerRefresh" });
+    }
+    function engineerDelegate2(role) {
+      vscode2.postMessage({ type: "engineerDelegate", role });
+    }
+    function engineerRequestHistory2() {
+      vscode2.postMessage({ type: "engineerHistory" });
+    }
+    function engineerPromptAction2(suggestionId, action) {
+      if (action === "dismiss") {
+        engineerDismissPrompt2();
+        if (suggestionId) {
+          vscode2.postMessage({ type: "engineerAction", suggestionId, action: "dismiss" });
+        }
+      } else {
+        engineerDismissPrompt2();
+        if (suggestionId) {
+          vscode2.postMessage({ type: "engineerAction", suggestionId, action: "open" });
+        }
+      }
+    }
+    function engineerHandleDelegated2(data) {
+      const roleNames = {
+        "architect": "Architect",
+        "modularity-lead": "Modularity Lead",
+        "verifier": "Verifier",
+        "doc-officer": "Doc Officer",
+        "planner": "Planner",
+        "release-captain": "Release Captain"
+      };
+      const roleName = roleNames[data.role] || data.role;
+      let indicator = document.getElementById("delegatedRoleIndicator");
+      if (!indicator) {
+        indicator = document.createElement("div");
+        indicator.id = "delegatedRoleIndicator";
+        indicator.style.cssText = "padding:4px 8px; font-size:10px; background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); border-radius:4px; display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;";
+        const inputArea = document.getElementById("chatInputContainer") || document.getElementById("chatInput")?.parentElement;
+        if (inputArea)
+          inputArea.prepend(indicator);
+      }
+      indicator.innerHTML = `<span>Delegated to: <strong>${roleName}</strong></span><button onclick="this.parentElement.remove();" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px;">x</button>`;
+      const chatTab = document.querySelector('[data-tab="chat"]');
+      if (chatTab)
+        chatTab.click();
+      const chatInput = document.getElementById("chatInput");
+      if (chatInput) {
+        chatInput.value = data.prompt;
+        chatInput.dispatchEvent(new Event("input"));
+        chatInput.focus();
+      }
+    }
+    function engineerCheckSectors2(suggestions) {
+      const hint = document.getElementById("engineerNoSectors");
+      if (!hint)
+        return;
+      const hasSectorSuggestions = suggestions.some((s) => s.sectorId);
+      const sectorsEmpty = !hasSectorSuggestions && suggestions.length <= 1;
+      hint.style.display = sectorsEmpty ? "block" : "none";
+    }
+    return {
+      engineerRenderStatus: engineerRenderStatus2,
+      engineerRenderSuggestions: engineerRenderSuggestions2,
+      engineerRenderHistory: engineerRenderHistory2,
+      engineerRenderPrompt: engineerRenderPrompt2,
+      engineerDismissPrompt: engineerDismissPrompt2,
+      engineerToggleShowAll: engineerToggleShowAll2,
+      engineerAction: engineerAction2,
+      engineerRefresh: engineerRefresh2,
+      engineerDelegate: engineerDelegate2,
+      engineerRequestHistory: engineerRequestHistory2,
+      engineerPromptAction: engineerPromptAction2,
+      engineerHandleDelegated: engineerHandleDelegated2,
+      engineerCheckSectors: engineerCheckSectors2
+    };
+  }
+
+  // src/webview/panel/features/autopilot.ts
+  function createAutopilotHandlers(deps) {
+    const { vscode: vscode2 } = deps;
+    let _currentStatus = null;
+    function autopilotRenderStatus2(data) {
+      _currentStatus = data;
+      const bar = document.getElementById("autopilotControlBar");
+      const statusText = document.getElementById("autopilotStatusText");
+      const stepCounter = document.getElementById("autopilotStepCounter");
+      const agentLabel = document.getElementById("autopilotAgentLabel");
+      const pauseBtn = document.getElementById("autopilotPauseBtn");
+      const resumeBtn = document.getElementById("autopilotResumeBtn");
+      const abortBtn = document.getElementById("autopilotAbortBtn");
+      const progressBar = document.getElementById("autopilotProgressFill");
+      const errorText = document.getElementById("autopilotErrorText");
+      if (!bar)
+        return;
+      const isActive = data.status !== "idle";
+      bar.style.display = isActive ? "flex" : "none";
+      const statusLabels = {
+        idle: "Idle",
+        running: "Running",
+        pausing: "Pausing...",
+        paused: "Paused",
+        stopping: "Stopping...",
+        completed: "Completed",
+        failed: "Failed"
+      };
+      if (statusText) {
+        statusText.textContent = statusLabels[data.status] || data.status;
+        statusText.className = "autopilot-status-label " + (data.status || "idle");
+      }
+      if (stepCounter) {
+        const total = data.totalSteps || 0;
+        const done = (data.completedSteps || 0) + (data.failedSteps || 0) + (data.skippedSteps || 0);
+        stepCounter.textContent = `${done}/${total} steps`;
+      }
+      if (agentLabel) {
+        const agentNames = {
+          "claude-cli": "Claude CLI",
+          "claude-api": "Claude API",
+          "gpt-api": "GPT"
+        };
+        const name = agentNames[data.activeAgent] || data.activeAgent;
+        agentLabel.textContent = data.usingFallback ? `${name} (fallback)` : name;
+        agentLabel.style.color = data.usingFallback ? "#f59e0b" : "var(--text-secondary)";
+      }
+      if (pauseBtn)
+        pauseBtn.style.display = data.status === "running" ? "inline-block" : "none";
+      if (resumeBtn)
+        resumeBtn.style.display = data.status === "paused" ? "inline-block" : "none";
+      if (abortBtn)
+        abortBtn.style.display = data.status === "running" || data.status === "paused" ? "inline-block" : "none";
+      if (progressBar && data.totalSteps > 0) {
+        const pct = (data.completedSteps + data.failedSteps + data.skippedSteps) / data.totalSteps * 100;
+        progressBar.style.width = `${pct}%`;
+        progressBar.className = "autopilot-progress-fill " + (data.failedSteps > 0 ? "has-errors" : "");
+      }
+      if (errorText) {
+        if (data.error) {
+          errorText.textContent = data.error;
+          errorText.style.display = "block";
+        } else {
+          errorText.style.display = "none";
+        }
+      }
+    }
+    function autopilotRenderStepResult2(result) {
+      const list = document.getElementById("autopilotStepList");
+      if (!list || !result)
+        return;
+      const statusIcon = result.skipped ? "\u23ED" : result.success ? "\u2705" : "\u274C";
+      const agentBadge = result.wasFallback ? ' <span style="color:#f59e0b;">[fallback]</span>' : "";
+      const retryBadge = result.retries > 0 ? ` <span style="color:var(--text-secondary);">(${result.retries} retries)</span>` : "";
+      const row = document.createElement("div");
+      row.className = "autopilot-step-row";
+      row.innerHTML = `
+      <span>${statusIcon}</span>
+      <span style="flex:1; font-size:10px;">${result.stepId}${agentBadge}${retryBadge}</span>
+      <span style="font-size:9px; color:var(--text-secondary);">${((result.endTime - result.startTime) / 1e3).toFixed(1)}s</span>
+    `;
+      list.prepend(row);
+    }
+    function autopilotRenderSessionPrompt2(data) {
+      const prompt2 = document.getElementById("autopilotSessionPrompt");
+      if (!prompt2)
+        return;
+      if (data.hasSession && data.sessionInfo) {
+        const info = data.sessionInfo;
+        const timeAgo = getTimeAgo(info.savedAt);
+        prompt2.innerHTML = `
+        <div style="font-size:10px; color:var(--text-secondary); margin-bottom:4px;">
+          Interrupted session found: ${info.completedSteps}/${info.totalSteps} steps completed (${timeAgo})
+        </div>
+        <div style="display:flex; gap:4px;">
+          <button class="btn-primary" onclick="autopilotResumeSession()" style="padding:3px 8px; font-size:10px;">Resume</button>
+          <button class="btn-secondary" onclick="autopilotClearSession()" style="padding:3px 8px; font-size:10px;">Discard</button>
+        </div>
+      `;
+        prompt2.style.display = "block";
+      } else {
+        prompt2.style.display = "none";
+      }
+    }
+    function autopilotRenderConfig2(config) {
+      const strategySelect = document.getElementById("autopilotStrategySelect");
+      const retryInput = document.getElementById("autopilotRetryInput");
+      const delayInput = document.getElementById("autopilotDelayInput");
+      if (strategySelect)
+        strategySelect.value = config.errorStrategy || "retry";
+      if (retryInput)
+        retryInput.value = String(config.maxRetries || 3);
+      if (delayInput)
+        delayInput.value = String(config.stepDelayMs || 500);
+    }
+    function autopilotPause2() {
+      vscode2.postMessage({ type: "autopilotPause" });
+    }
+    function autopilotResume2() {
+      vscode2.postMessage({ type: "autopilotResume" });
+    }
+    function autopilotAbort2() {
+      vscode2.postMessage({ type: "autopilotAbort" });
+    }
+    function autopilotRequestStatus2() {
+      vscode2.postMessage({ type: "autopilotStatus" });
+    }
+    function autopilotCheckSession2() {
+      vscode2.postMessage({ type: "autopilotCheckSession" });
+    }
+    function autopilotResumeSession2() {
+      vscode2.postMessage({ type: "autopilotResumeSession" });
+    }
+    function autopilotClearSession2() {
+      vscode2.postMessage({ type: "autopilotClearSession" });
+      const prompt2 = document.getElementById("autopilotSessionPrompt");
+      if (prompt2)
+        prompt2.style.display = "none";
+    }
+    function autopilotUpdateConfig2() {
+      const strategySelect = document.getElementById("autopilotStrategySelect");
+      const retryInput = document.getElementById("autopilotRetryInput");
+      const delayInput = document.getElementById("autopilotDelayInput");
+      const config = {};
+      if (strategySelect)
+        config.errorStrategy = strategySelect.value;
+      if (retryInput)
+        config.maxRetries = parseInt(retryInput.value) || 3;
+      if (delayInput)
+        config.stepDelayMs = parseInt(delayInput.value) || 500;
+      vscode2.postMessage({ type: "autopilotConfig", config });
+    }
+    function getTimeAgo(timestamp) {
+      const diff = Date.now() - timestamp;
+      const mins = Math.floor(diff / 6e4);
+      if (mins < 1)
+        return "just now";
+      if (mins < 60)
+        return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24)
+        return `${hrs}h ago`;
+      return `${Math.floor(hrs / 24)}d ago`;
+    }
+    return {
+      autopilotRenderStatus: autopilotRenderStatus2,
+      autopilotRenderStepResult: autopilotRenderStepResult2,
+      autopilotRenderSessionPrompt: autopilotRenderSessionPrompt2,
+      autopilotRenderConfig: autopilotRenderConfig2,
+      autopilotPause: autopilotPause2,
+      autopilotResume: autopilotResume2,
+      autopilotAbort: autopilotAbort2,
+      autopilotRequestStatus: autopilotRequestStatus2,
+      autopilotCheckSession: autopilotCheckSession2,
+      autopilotResumeSession: autopilotResumeSession2,
+      autopilotClearSession: autopilotClearSession2,
+      autopilotUpdateConfig: autopilotUpdateConfig2
+    };
+  }
+
+  // src/webview/panel/features/gameui.ts
+  function createGameUIHandlers(deps) {
+    const { vscode: vscode2 } = deps;
+    let _currentState = null;
+    let _catalog = [];
+    function gameuiRenderState2(data) {
+      _currentState = data.state;
+      const summary = data.summary;
+      if (!summary)
+        return;
+      const statusEl = document.getElementById("gameuiStatus");
+      const progressEl = document.getElementById("gameuiProgressFill");
+      const statsEl = document.getElementById("gameuiStats");
+      const phaseEl = document.getElementById("gameuiCurrentPhase");
+      if (statusEl) {
+        statusEl.textContent = _currentState?.isRunning ? "Running" : "Idle";
+        statusEl.className = "gameui-status " + (_currentState?.isRunning ? "running" : "idle");
+      }
+      if (progressEl) {
+        const pct = summary.total > 0 ? (summary.total - summary.planned) / summary.total * 100 : 0;
+        progressEl.style.width = `${pct}%`;
+      }
+      if (statsEl) {
+        statsEl.innerHTML = `
+        <span title="Planned">${summary.planned} planned</span>
+        <span title="Placeholder">${summary.placeholder} placed</span>
+        <span title="Verified">${summary.verified} verified</span>
+        <span title="Complete">${summary.complete} done</span>
+        ${summary.errors > 0 ? `<span style="color:var(--error-text);">${summary.errors} errors</span>` : ""}
+      `;
+      }
+      if (phaseEl && _currentState) {
+        const phaseLabels = {
+          "theme": "Theme Setup",
+          "primitives": "Primitives",
+          "system-screens": "System Screens",
+          "menu": "Main Menu",
+          "hud": "HUD Elements",
+          "panels": "Panels",
+          "dialogs-map": "Dialogs & Map",
+          "art-replacement": "Art Replacement"
+        };
+        phaseEl.textContent = phaseLabels[_currentState.phase] || _currentState.phase;
+      }
+      gameuiRenderCategoryBreakdown(summary.byCategory);
+    }
+    function gameuiRenderCategoryBreakdown(byCategory) {
+      const container = document.getElementById("gameuiCategoryBreakdown");
+      if (!container || !byCategory)
+        return;
+      const categoryColors = {
+        primitive: "#64748B",
+        system: "#3B82F6",
+        menu: "#8B5CF6",
+        hud: "#22C55E",
+        inventory: "#F59E0B",
+        character: "#F59E0B",
+        social: "#F59E0B",
+        shop: "#F59E0B",
+        dialog: "#EF4444",
+        map: "#6B7280"
+      };
+      container.innerHTML = "";
+      for (const [cat, info] of Object.entries(byCategory)) {
+        const chip = document.createElement("div");
+        chip.className = "gameui-category-chip";
+        const color = categoryColors[cat] || "#64748B";
+        chip.innerHTML = `
+        <span style="width:8px; height:8px; border-radius:50%; background:${color}; display:inline-block;"></span>
+        <span style="font-size:9px; text-transform:capitalize;">${cat}</span>
+        <span style="font-size:9px; color:var(--text-secondary);">${info.done}/${info.total}</span>
+      `;
+        chip.onclick = () => gameuiFilterCategory2(cat);
+        container.appendChild(chip);
+      }
+    }
+    function gameuiRenderCatalog2(data) {
+      _catalog = data.components || [];
+      const list = document.getElementById("gameuiComponentList");
+      if (!list)
+        return;
+      list.innerHTML = "";
+      const statusIcons = {
+        planned: "\u23F3",
+        placeholder: "\u{1F7E6}",
+        verified: "\u2705",
+        "art-generated": "\u{1F3A8}",
+        "art-swapped": "\u{1F504}",
+        complete: "\u2B50"
+      };
+      for (const comp of _catalog) {
+        const row = document.createElement("div");
+        row.className = "gameui-component-row";
+        row.innerHTML = `
+        <span style="font-size:10px;">${statusIcons[comp.status] || "\u23F3"}</span>
+        <span style="font-size:10px; font-weight:600; width:60px;">${comp.id}</span>
+        <span style="font-size:10px; flex:1;">${comp.name}</span>
+        <span style="font-size:9px; color:var(--text-secondary); text-transform:capitalize;">${comp.status}</span>
+        ${comp.status === "planned" ? `<button class="btn-secondary" onclick="gameuiGenerateComponent('${comp.id}')" style="padding:2px 6px; font-size:9px;">Generate</button>` : ""}
+      `;
+        list.appendChild(row);
+      }
+    }
+    function gameuiRenderEvent2(event) {
+      const feed = document.getElementById("gameuiEventFeed");
+      if (!feed || !event)
+        return;
+      const typeColors = {
+        "started": "var(--accent-color)",
+        "phase-start": "#8B5CF6",
+        "phase-complete": "#22C55E",
+        "component-start": "var(--text-secondary)",
+        "component-complete": "#22C55E",
+        "component-error": "var(--error-text)",
+        "complete": "#22C55E",
+        "error": "var(--error-text)",
+        "stopped": "#F59E0B"
+      };
+      const row = document.createElement("div");
+      row.style.cssText = "font-size:9px; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.05);";
+      const color = typeColors[event.type] || "var(--text-secondary)";
+      const time = new Date(event.timestamp).toLocaleTimeString();
+      row.innerHTML = `<span style="color:${color};">[${event.type}]</span> ${event.componentId || ""} ${event.message || ""} <span style="color:var(--text-secondary);">${time}</span>`;
+      feed.prepend(row);
+      while (feed.children.length > 50) {
+        feed.removeChild(feed.lastChild);
+      }
+    }
+    function gameuiRenderThemes2(data) {
+      const list = document.getElementById("gameuiThemeList");
+      if (!list)
+        return;
+      list.innerHTML = "";
+      for (const theme of data.themes || []) {
+        const row = document.createElement("div");
+        row.className = "gameui-theme-row" + (theme.isActive ? " active" : "");
+        row.innerHTML = `
+        <span style="font-size:10px; font-weight:600;">${theme.name}</span>
+        <span style="font-size:9px; color:var(--text-secondary);">${theme.variables?.length || 0} vars</span>
+        ${theme.isActive ? '<span style="font-size:9px; color:var(--accent-color);">Active</span>' : `<button class="btn-secondary" onclick="gameuiSetActiveTheme('${theme.id}')" style="padding:2px 6px; font-size:9px;">Use</button>`}
+      `;
+        list.appendChild(row);
+      }
+    }
+    function gameuiRequestState2() {
+      vscode2.postMessage({ type: "gameuiGetState" });
+    }
+    function gameuiRequestCatalog2(category) {
+      vscode2.postMessage({ type: "gameuiGetCatalog", category: category || null });
+    }
+    function gameuiFilterCategory2(category) {
+      gameuiRequestCatalog2(category);
+    }
+    function gameuiGenerateComponent2(componentId) {
+      vscode2.postMessage({ type: "gameuiGenerateComponent", componentId });
+    }
+    function gameuiRunPhase2(phase) {
+      vscode2.postMessage({ type: "gameuiRunPhase", phase });
+    }
+    function gameuiRunAll2() {
+      vscode2.postMessage({ type: "gameuiRunAll" });
+    }
+    function gameuiStop2() {
+      vscode2.postMessage({ type: "gameuiStop" });
+    }
+    function gameuiRequestThemes2() {
+      vscode2.postMessage({ type: "gameuiGetThemes" });
+    }
+    function gameuiSetActiveTheme2(themeId) {
+      vscode2.postMessage({ type: "gameuiSetTheme", activeThemeId: themeId });
+    }
+    function gameuiGenerateThemeUSS2() {
+      vscode2.postMessage({ type: "gameuiGenerateThemeUSS" });
+    }
+    function gameuiSaveState2() {
+      vscode2.postMessage({ type: "gameuiSaveState" });
+    }
+    function gameuiLoadState2() {
+      vscode2.postMessage({ type: "gameuiLoadState" });
+    }
+    return {
+      gameuiRenderState: gameuiRenderState2,
+      gameuiRenderCatalog: gameuiRenderCatalog2,
+      gameuiRenderEvent: gameuiRenderEvent2,
+      gameuiRenderThemes: gameuiRenderThemes2,
+      gameuiRequestState: gameuiRequestState2,
+      gameuiRequestCatalog: gameuiRequestCatalog2,
+      gameuiFilterCategory: gameuiFilterCategory2,
+      gameuiGenerateComponent: gameuiGenerateComponent2,
+      gameuiRunPhase: gameuiRunPhase2,
+      gameuiRunAll: gameuiRunAll2,
+      gameuiStop: gameuiStop2,
+      gameuiRequestThemes: gameuiRequestThemes2,
+      gameuiSetActiveTheme: gameuiSetActiveTheme2,
+      gameuiGenerateThemeUSS: gameuiGenerateThemeUSS2,
+      gameuiSaveState: gameuiSaveState2,
+      gameuiLoadState: gameuiLoadState2
+    };
+  }
+
+  // src/webview/panel/features/db.ts
+  var PROVIDER_ICONS = {
+    supabase: "S",
+    firebase: "F",
+    postgresql: "P",
+    mysql: "M",
+    sqlite: "L",
+    mongodb: "D"
+  };
+  var STATUS_COLORS = {
+    connected: "#10b981",
+    connecting: "#f59e0b",
+    disconnected: "#666",
+    error: "#ef4444"
+  };
+  function createDbHandlers(deps) {
+    const { vscode: vscode2 } = deps;
+    function dbRenderConnectionList2(msg2) {
+      const listEl = document.getElementById("dbConnectionList");
+      if (!listEl)
+        return;
+      const connections = msg2.connections || [];
+      const activeId = msg2.activeConnectionId;
+      if (connections.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:4px;">No external databases connected.</div>';
+        return;
+      }
+      listEl.innerHTML = connections.map((c) => {
+        const icon = PROVIDER_ICONS[c.provider] || "?";
+        const statusColor = STATUS_COLORS[c.status] || "#666";
+        const isActive = c.id === activeId;
+        const border = isActive ? "border:1px solid var(--accent-color);" : "border:1px solid var(--border-color);";
+        return `<div style="padding:6px 8px; background:var(--bg-primary); border-radius:4px; margin-bottom:4px; ${border}">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-weight:700; font-size:12px; color:var(--accent-color); width:16px; text-align:center;">${icon}</span>
+            <span style="font-size:11px; font-weight:500;">${c.name || c.id}</span>
+            <span style="font-size:9px; color:${statusColor};">\u25CF ${c.status}</span>
+          </div>
+          <div style="display:flex; gap:4px;">
+            ${!isActive ? `<button class="btn-secondary" onclick="dbSetActive('${c.id}')" style="padding:1px 6px; font-size:9px;">Use</button>` : '<span style="font-size:9px; color:var(--accent-color);">Active</span>'}
+            <button class="btn-secondary" onclick="dbTestConnection('${c.id}')" style="padding:1px 6px; font-size:9px;">Test</button>
+            <button class="btn-secondary" onclick="dbRemoveConnection('${c.id}')" style="padding:1px 6px; font-size:9px;">\u2715</button>
+          </div>
+        </div>
+        <div style="font-size:9px; color:var(--text-secondary); margin-top:2px;">
+          ${c.host ? c.host + (c.port ? ":" + c.port : "") : ""} ${c.database ? "/ " + c.database : ""} ${c.filePath || ""}
+        </div>
+        ${c.error ? `<div style="font-size:9px; color:#ef4444; margin-top:2px;">${c.error}</div>` : ""}
+      </div>`;
+      }).join("");
+    }
+    function dbRenderSchema2(msg2) {
+      const schema = msg2.schema;
+      if (!schema || !schema.tables)
+        return;
+      const listEl = document.getElementById("dbConnectionList");
+      if (!listEl)
+        return;
+      let schemaEl = document.getElementById("dbSchemaView");
+      if (!schemaEl) {
+        schemaEl = document.createElement("div");
+        schemaEl.id = "dbSchemaView";
+        schemaEl.style.cssText = "margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;";
+        listEl.parentElement?.appendChild(schemaEl);
+      }
+      if (schema.tables.length === 0) {
+        schemaEl.innerHTML = '<div style="color:var(--text-secondary); font-size:11px;">No tables found.</div>';
+        return;
+      }
+      schemaEl.innerHTML = `
+      <div style="font-size:10px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">Schema (${schema.tables.length} tables)</div>
+      ${schema.tables.map((t) => `
+        <details style="margin-bottom:3px;">
+          <summary style="cursor:pointer; font-size:11px; padding:2px 4px; background:var(--bg-primary); border-radius:3px;">
+            <strong>${t.name}</strong>
+            <span style="color:var(--text-secondary); font-size:9px;">${t.columns?.length || 0} cols${t.rowCount != null ? ", ~" + t.rowCount + " rows" : ""}</span>
+          </summary>
+          <div style="padding:4px 8px; font-size:10px;">
+            ${(t.columns || []).map((col) => `
+              <div style="display:flex; gap:6px; padding:1px 0; color:var(--text-primary);">
+                <span style="width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${col.primaryKey ? "\u{1F511} " : ""}${col.name}</span>
+                <span style="color:var(--text-secondary); width:80px;">${col.type}</span>
+                <span style="color:var(--text-secondary);">${col.nullable ? "NULL" : "NOT NULL"}</span>
+              </div>
+            `).join("")}
+          </div>
+        </details>
+      `).join("")}
+    `;
+    }
+    function dbRenderQueryResult2(msg2) {
+      const result = msg2.result;
+      if (!result)
+        return;
+      let resultEl = document.getElementById("dbQueryResultView");
+      if (!resultEl) {
+        const listEl = document.getElementById("dbConnectionList");
+        if (!listEl)
+          return;
+        resultEl = document.createElement("div");
+        resultEl.id = "dbQueryResultView";
+        resultEl.style.cssText = "margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;";
+        listEl.parentElement?.appendChild(resultEl);
+      }
+      if (result.error) {
+        resultEl.innerHTML = `<div style="color:#ef4444; font-size:11px; padding:4px;">Error: ${result.error}</div>`;
+        return;
+      }
+      const cols = result.columns || [];
+      const rows = result.rows || [];
+      resultEl.innerHTML = `
+      <div style="font-size:10px; color:var(--text-secondary); margin-bottom:4px;">${rows.length} row(s) in ${result.executionTime || 0}ms</div>
+      <div style="overflow-x:auto; max-height:200px; overflow-y:auto;">
+        <table style="width:100%; font-size:10px; border-collapse:collapse;">
+          <thead>
+            <tr>${cols.map((c) => `<th style="text-align:left; padding:2px 6px; border-bottom:1px solid var(--border-color); color:var(--text-secondary);">${c}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.slice(0, 100).map((row) => `
+              <tr>${cols.map((c) => `<td style="padding:2px 6px; border-bottom:1px solid var(--bg-tertiary); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${row[c] ?? ""}</td>`).join("")}</tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+    }
+    function dbRenderTestResult2(msg2) {
+      const connId = msg2.connectionId;
+      if (!connId)
+        return;
+      if (msg2.connections) {
+        dbRenderConnectionList2({ connections: msg2.connections, activeConnectionId: msg2.activeConnectionId });
+      }
+    }
+    function dbShowConnectionWizard2() {
+      const wizard = document.getElementById("dbConnectionWizard");
+      if (wizard)
+        wizard.style.display = "block";
+    }
+    function dbAddConnection2() {
+      const provider = document.getElementById("dbProviderSelect")?.value || "postgresql";
+      const name = document.getElementById("dbConnNameInput")?.value?.trim();
+      const host = document.getElementById("dbHostInput")?.value?.trim();
+      const database = document.getElementById("dbNameInput")?.value?.trim();
+      if (!name)
+        return;
+      vscode2.postMessage({
+        type: "dbAddConnection",
+        connection: {
+          name,
+          provider,
+          host: host || "localhost",
+          database: database || ""
+        }
+      });
+      const wizard = document.getElementById("dbConnectionWizard");
+      if (wizard)
+        wizard.style.display = "none";
+      const nameInput = document.getElementById("dbConnNameInput");
+      if (nameInput)
+        nameInput.value = "";
+      const hostInput = document.getElementById("dbHostInput");
+      if (hostInput)
+        hostInput.value = "";
+      const dbInput = document.getElementById("dbNameInput");
+      if (dbInput)
+        dbInput.value = "";
+    }
+    function dbRemoveConnection2(connectionId) {
+      vscode2.postMessage({ type: "dbRemoveConnection", connectionId });
+    }
+    function dbTestConnection2(connectionId) {
+      vscode2.postMessage({ type: "dbTestConnection", connectionId });
+    }
+    function dbSetActive2(connectionId) {
+      vscode2.postMessage({ type: "dbSetActive", connectionId });
+    }
+    function dbGetSchema2() {
+      vscode2.postMessage({ type: "dbGetSchema" });
+    }
+    function dbRequestState2() {
+      vscode2.postMessage({ type: "dbGetState" });
+    }
+    return {
+      // Render functions (called from messageRouter)
+      dbRenderConnectionList: dbRenderConnectionList2,
+      dbRenderSchema: dbRenderSchema2,
+      dbRenderQueryResult: dbRenderQueryResult2,
+      dbRenderTestResult: dbRenderTestResult2,
+      // Action functions (exposed as globals)
+      dbShowConnectionWizard: dbShowConnectionWizard2,
+      dbAddConnection: dbAddConnection2,
+      dbRemoveConnection: dbRemoveConnection2,
+      dbTestConnection: dbTestConnection2,
+      dbSetActive: dbSetActive2,
+      dbGetSchema: dbGetSchema2,
+      dbRequestState: dbRequestState2
+    };
+  }
+
+  // src/webview/panel/features/chatSearch.ts
+  function createChatSearchHandlers(deps) {
+    const { vscode: vscode2, escapeHtml: escapeHtml2 } = deps;
+    let searchTimeout = null;
+    let lastQuery = "";
+    function chatSearchToggle2() {
+      const bar = document.getElementById("chatSearchBar");
+      const input = document.getElementById("chatSearchInput");
+      if (!bar)
+        return;
+      const visible = bar.style.display !== "none";
+      bar.style.display = visible ? "none" : "block";
+      if (!visible && input) {
+        input.focus();
+        input.value = "";
+      } else {
+        const results = document.getElementById("chatSearchResults");
+        if (results)
+          results.style.display = "none";
+      }
+    }
+    function chatSearchInput2(value) {
+      if (searchTimeout)
+        clearTimeout(searchTimeout);
+      const query = (value || "").trim();
+      if (query.length < 2) {
+        const results = document.getElementById("chatSearchResults");
+        if (results)
+          results.style.display = "none";
+        return;
+      }
+      searchTimeout = setTimeout(() => {
+        lastQuery = query;
+        vscode2.postMessage({ type: "memorySearch", query, limit: 20 });
+      }, 300);
+    }
+    function chatSearchRenderResults2(msg2) {
+      const resultsEl = document.getElementById("chatSearchResults");
+      if (!resultsEl)
+        return;
+      const results = msg2.results || [];
+      const query = msg2.query || lastQuery;
+      if (results.length === 0) {
+        resultsEl.style.display = "block";
+        resultsEl.innerHTML = '<div style="padding:8px; color:var(--text-secondary); font-size:11px; text-align:center;">No results for "' + escapeHtml2(query) + '"</div>';
+        return;
+      }
+      resultsEl.style.display = "block";
+      resultsEl.innerHTML = `
+      <div style="padding:4px 8px; font-size:10px; color:var(--text-secondary); border-bottom:1px solid var(--border-color);">
+        ${results.length} result${results.length !== 1 ? "s" : ""} for "${escapeHtml2(query)}"
+      </div>
+      ${results.map((r, i) => {
+        const isUser = r.role === "user";
+        const roleColor = isUser ? "var(--accent-color)" : "#10b981";
+        const roleLabel = isUser ? "You" : "AI";
+        const snippet = (r.content || "").slice(0, 150);
+        const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : "";
+        const sessionId = r.session_id || r.sessionId || "";
+        const highlighted = highlightTerms(escapeHtml2(snippet), query);
+        return `<div class="chat-search-result" onclick="chatSearchLoadResult('${escapeHtml2(sessionId)}', ${r.id || 0})" style="padding:6px 8px; cursor:pointer; border-bottom:1px solid var(--bg-tertiary);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:10px; font-weight:600; color:${roleColor};">${roleLabel}</span>
+            <span style="font-size:9px; color:var(--text-secondary);">${time}</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-primary); margin-top:2px; line-height:1.3;">
+            ${highlighted}${(r.content || "").length > 150 ? "..." : ""}
+          </div>
+          ${r.tags && r.tags.length ? `<div style="margin-top:2px;">${r.tags.map((t) => '<span style="font-size:9px; padding:1px 4px; background:var(--bg-tertiary); border-radius:4px; margin-right:2px;">' + escapeHtml2(t) + "</span>").join("")}</div>` : ""}
+        </div>`;
+      }).join("")}
+    `;
+    }
+    function highlightTerms(text, query) {
+      const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
+      let result = text;
+      for (const term of terms) {
+        const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+        result = result.replace(regex, '<mark style="background:rgba(99,102,241,0.3);border-radius:2px;padding:0 1px;">$1</mark>');
+      }
+      return result;
+    }
+    function chatSearchLoadResult2(sessionId, messageId) {
+      if (sessionId) {
+        vscode2.postMessage({ type: "memoryGetSession", sessionId, limit: 50 });
+      }
+      const bar = document.getElementById("chatSearchBar");
+      const results = document.getElementById("chatSearchResults");
+      if (bar)
+        bar.style.display = "none";
+      if (results)
+        results.style.display = "none";
+    }
+    function chatSearchClose2() {
+      const bar = document.getElementById("chatSearchBar");
+      const results = document.getElementById("chatSearchResults");
+      if (bar)
+        bar.style.display = "none";
+      if (results)
+        results.style.display = "none";
+    }
+    return {
+      chatSearchToggle: chatSearchToggle2,
+      chatSearchInput: chatSearchInput2,
+      chatSearchRenderResults: chatSearchRenderResults2,
+      chatSearchLoadResult: chatSearchLoadResult2,
+      chatSearchClose: chatSearchClose2
+    };
+  }
+
+  // src/webview/panel/features/comms.ts
+  var SEVERITY_COLORS = {
+    HIGH: "#ef4444",
+    MEDIUM: "#f59e0b",
+    LOW: "#3b82f6",
+    INFO: "#6b7280"
+  };
+  var TIER_LABELS = {
+    1: "Tier 1 \u2014 API Testing",
+    2: "Tier 2 \u2014 Vulnerability Scanning",
+    3: "Tier 3 \u2014 Full Pentest"
+  };
+  var TIER_COLORS = {
+    1: "#3b82f6",
+    2: "#f59e0b",
+    3: "#ef4444"
+  };
+  function createCommsHandlers(deps) {
+    const { vscode: vscode2, escapeHtml: escapeHtml2 } = deps;
+    function commsRenderState2(msg2) {
+      const tierEl = document.getElementById("commsTierLabel");
+      const tierBar = document.getElementById("commsTierBar");
+      if (tierEl) {
+        tierEl.textContent = TIER_LABELS[msg2.tier] || `Tier ${msg2.tier}`;
+        tierEl.style.color = TIER_COLORS[msg2.tier] || "#6b7280";
+      }
+      if (tierBar) {
+        tierBar.style.width = `${msg2.tier / 3 * 100}%`;
+        tierBar.style.background = TIER_COLORS[msg2.tier] || "#3b82f6";
+      }
+      const tierSelect = document.getElementById("commsTierSelect");
+      if (tierSelect)
+        tierSelect.value = String(msg2.tier);
+      commsRenderServices2(msg2.services || {});
+      commsRenderRecentScans(msg2.recentScans || []);
+      commsRenderProfiles(msg2.profiles || {}, msg2.tier);
+    }
+    function commsRenderServices2(services) {
+      const el = document.getElementById("commsServicesList");
+      if (!el)
+        return;
+      const items = [
+        { key: "postman", name: "Postman", icon: "\u{1F4EC}" },
+        { key: "zap", name: "ZAP", icon: "\u26A1" },
+        { key: "pentest", name: "Pentest", icon: "\u{1F513}" }
+      ];
+      el.innerHTML = items.map((item) => {
+        const svc = services[item.key] || {};
+        const available = svc.available;
+        const dot = available ? "\u{1F7E2}" : "\u{1F534}";
+        const label = available ? "Connected" : "Not available";
+        return `<div class="comms-service-row">
+        <span>${item.icon} ${item.name}</span>
+        <span style="font-size:10px; color:${available ? "#22c55e" : "#6b7280"}">${dot} ${label}</span>
+      </div>`;
+      }).join("");
+    }
+    function commsRenderProfiles(profiles, tier) {
+      const el = document.getElementById("commsScanProfileSelect");
+      if (!el)
+        return;
+      const select = el;
+      select.innerHTML = "";
+      for (const [key, profile] of Object.entries(profiles)) {
+        const p = profile;
+        const disabled = tier < p.tier;
+        const option = document.createElement("option");
+        option.value = key;
+        option.textContent = `${p.name}${disabled ? ` (Tier ${p.tier}+)` : ""}`;
+        option.disabled = disabled;
+        select.appendChild(option);
+      }
+    }
+    function commsRenderRecentScans(scans) {
+      const el = document.getElementById("commsRecentScansList");
+      if (!el)
+        return;
+      if (!scans || scans.length === 0) {
+        el.innerHTML = '<div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:12px;">No scans yet. Enter a target URL and run a scan.</div>';
+        return;
+      }
+      el.innerHTML = scans.map((scan) => {
+        const statusIcon = scan.status === "running" ? "\u{1F504}" : scan.status === "completed" ? "\u2705" : "\u274C";
+        const time = new Date(scan.startTime).toLocaleTimeString();
+        const summaryParts = [];
+        if (scan.summary.high)
+          summaryParts.push(`<span style="color:${SEVERITY_COLORS.HIGH}">${scan.summary.high}H</span>`);
+        if (scan.summary.medium)
+          summaryParts.push(`<span style="color:${SEVERITY_COLORS.MEDIUM}">${scan.summary.medium}M</span>`);
+        if (scan.summary.low)
+          summaryParts.push(`<span style="color:${SEVERITY_COLORS.LOW}">${scan.summary.low}L</span>`);
+        if (scan.summary.info)
+          summaryParts.push(`<span style="color:${SEVERITY_COLORS.INFO}">${scan.summary.info}I</span>`);
+        const summaryStr = summaryParts.length ? summaryParts.join(" ") : scan.status === "running" ? "Scanning..." : "Clean";
+        return `<div class="comms-scan-row" onclick="commsViewScan('${scan.id}')" style="cursor:pointer;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; font-weight:600;">${statusIcon} ${escapeHtml2(scan.profile)}</span>
+          <span style="font-size:9px; color:var(--text-secondary);">${time}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+          <span style="font-size:10px; color:var(--text-secondary);">${escapeHtml2(scan.target)}</span>
+          <span style="font-size:10px;">${summaryStr}</span>
+        </div>
+        ${scan.error ? `<div style="font-size:9px; color:${SEVERITY_COLORS.HIGH}; margin-top:2px;">${escapeHtml2(scan.error)}</div>` : ""}
+      </div>`;
+      }).join("");
+    }
+    function commsRenderScanDetail2(msg2) {
+      const scan = msg2.scan;
+      if (!scan)
+        return;
+      const el = document.getElementById("commsScanDetail");
+      const listEl = document.getElementById("commsRecentScansList");
+      if (!el)
+        return;
+      if (listEl)
+        listEl.style.display = "none";
+      el.style.display = "block";
+      const statusIcon = scan.status === "running" ? "\u{1F504}" : scan.status === "completed" ? "\u2705" : "\u274C";
+      const duration = scan.endTime ? `${((scan.endTime - scan.startTime) / 1e3).toFixed(1)}s` : "In progress";
+      let findingsHtml = "";
+      if (scan.findings && scan.findings.length > 0) {
+        findingsHtml = scan.findings.map((f, i) => `
+        <div class="comms-finding-row" style="border-left:3px solid ${SEVERITY_COLORS[f.severity] || "#6b7280"};">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:11px; font-weight:600;">${escapeHtml2(f.name)}</span>
+            <span class="comms-severity-badge" style="background:${SEVERITY_COLORS[f.severity] || "#6b7280"};">${f.severity}</span>
+          </div>
+          <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml2(f.description || "").slice(0, 200)}</div>
+          ${f.url ? `<div style="font-size:9px; color:var(--text-secondary); margin-top:2px;">${escapeHtml2(f.url)}</div>` : ""}
+          <div style="display:flex; gap:4px; margin-top:4px;">
+            <button class="btn-secondary" onclick="commsInvestigateFinding(${i})" style="padding:2px 6px; font-size:9px;">Investigate</button>
+            <button class="btn-secondary" onclick="commsGenerateFixForFinding(${i})" style="padding:2px 6px; font-size:9px;">Generate Fix</button>
+          </div>
+        </div>
+      `).join("");
+      } else if (scan.status === "completed") {
+        findingsHtml = '<div style="font-size:10px; color:#22c55e; text-align:center; padding:12px;">No vulnerabilities found.</div>';
+      }
+      el.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <button class="btn-secondary" onclick="commsCloseScanDetail()" style="padding:2px 8px; font-size:10px;">&larr; Back</button>
+        <span style="font-size:10px; color:var(--text-secondary);">${duration}</span>
+      </div>
+      <div style="margin-bottom:6px;">
+        <strong style="font-size:12px;">${statusIcon} ${escapeHtml2(scan.profile)}</strong>
+        <span style="font-size:10px; color:var(--text-secondary); margin-left:8px;">${escapeHtml2(scan.target)}</span>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <span class="comms-severity-badge" style="background:${SEVERITY_COLORS.HIGH};">${scan.summary.high} High</span>
+        <span class="comms-severity-badge" style="background:${SEVERITY_COLORS.MEDIUM};">${scan.summary.medium} Med</span>
+        <span class="comms-severity-badge" style="background:${SEVERITY_COLORS.LOW};">${scan.summary.low} Low</span>
+        <span class="comms-severity-badge" style="background:${SEVERITY_COLORS.INFO};">${scan.summary.info} Info</span>
+      </div>
+      ${scan.error ? `<div style="font-size:10px; color:${SEVERITY_COLORS.HIGH}; margin-bottom:6px;">${escapeHtml2(scan.error)}</div>` : ""}
+      <div id="commsFindingsList">${findingsHtml}</div>
+    `;
+      window._commsCurrentFindings = scan.findings || [];
+    }
+    function commsRenderScanStarted2(msg2) {
+      const scan = msg2.scan;
+      if (!scan)
+        return;
+      const el = document.getElementById("commsRecentScansList");
+      if (el) {
+        const row = document.createElement("div");
+        row.className = "comms-scan-row";
+        row.id = `commsScan-${scan.id}`;
+        row.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; font-weight:600;">\u{1F504} ${escapeHtml2(scan.profile)}</span>
+          <span style="font-size:9px; color:var(--text-secondary);">Running...</span>
+        </div>
+        <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml2(scan.target)}</div>
+      `;
+        el.prepend(row);
+      }
+      const indicator = document.getElementById("commsScanIndicator");
+      if (indicator) {
+        indicator.textContent = "Scanning...";
+        indicator.style.display = "inline";
+      }
+    }
+    function commsRenderScanCompleted2(msg2) {
+      const indicator = document.getElementById("commsScanIndicator");
+      if (indicator)
+        indicator.style.display = "none";
+      const detailEl = document.getElementById("commsScanDetail");
+      if (detailEl && detailEl.style.display !== "none") {
+        commsRenderScanDetail2(msg2);
+      }
+      vscode2.postMessage({ type: "commsGetState" });
+    }
+    function commsRenderPrompt2(msg2) {
+      if (!msg2.prompt)
+        return;
+      const chatInput = document.getElementById("chatInput");
+      if (chatInput) {
+        chatInput.value = msg2.prompt;
+        chatInput.dispatchEvent(new Event("input"));
+        chatInput.focus();
+      }
+    }
+    function commsRequestState2() {
+      vscode2.postMessage({ type: "commsGetState" });
+    }
+    function commsSetTier2(tier) {
+      vscode2.postMessage({ type: "commsSetTier", tier: Number(tier) });
+    }
+    function commsCheckServices2() {
+      vscode2.postMessage({ type: "commsCheckServices" });
+    }
+    function commsStartScan2() {
+      const profileEl = document.getElementById("commsScanProfileSelect");
+      const targetEl = document.getElementById("commsScanTarget");
+      const profile = profileEl?.value || "apiTest";
+      const target = targetEl?.value?.trim() || "";
+      if (!target) {
+        const statusEl = document.getElementById("commsScanStatus");
+        if (statusEl) {
+          statusEl.textContent = "Enter a target URL.";
+          statusEl.style.color = SEVERITY_COLORS.MEDIUM;
+        }
+        return;
+      }
+      vscode2.postMessage({ type: "commsStartScan", profile, target });
+    }
+    function commsViewScan2(scanId) {
+      vscode2.postMessage({ type: "commsGetScan", scanId });
+    }
+    function commsCloseScanDetail2() {
+      const detailEl = document.getElementById("commsScanDetail");
+      const listEl = document.getElementById("commsRecentScansList");
+      if (detailEl)
+        detailEl.style.display = "none";
+      if (listEl)
+        listEl.style.display = "";
+    }
+    function commsInvestigateFinding2(index) {
+      const findings = window._commsCurrentFindings || [];
+      const finding = findings[index];
+      if (finding) {
+        vscode2.postMessage({ type: "commsInvestigate", finding });
+      }
+    }
+    function commsGenerateFixForFinding2(index) {
+      const findings = window._commsCurrentFindings || [];
+      const finding = findings[index];
+      if (finding) {
+        vscode2.postMessage({ type: "commsGenerateFix", finding });
+      }
+    }
+    return {
+      // Render functions (called by messageRouter)
+      commsRenderState: commsRenderState2,
+      commsRenderServices: commsRenderServices2,
+      commsRenderScanDetail: commsRenderScanDetail2,
+      commsRenderScanStarted: commsRenderScanStarted2,
+      commsRenderScanCompleted: commsRenderScanCompleted2,
+      commsRenderPrompt: commsRenderPrompt2,
+      // Action functions (called by HTML onclick)
+      commsRequestState: commsRequestState2,
+      commsSetTier: commsSetTier2,
+      commsCheckServices: commsCheckServices2,
+      commsStartScan: commsStartScan2,
+      commsViewScan: commsViewScan2,
+      commsCloseScanDetail: commsCloseScanDetail2,
+      commsInvestigateFinding: commsInvestigateFinding2,
+      commsGenerateFixForFinding: commsGenerateFixForFinding2
+    };
+  }
+
+  // src/webview/panel/features/ops.ts
+  var STATUS_COLORS2 = {
+    online: "#22c55e",
+    offline: "#ef4444",
+    degraded: "#f59e0b",
+    unknown: "#6b7280"
+  };
+  var STATUS_ICONS = {
+    online: "\u{1F7E2}",
+    offline: "\u{1F534}",
+    degraded: "\u{1F7E1}",
+    unknown: "\u26AA"
+  };
+  function createOpsHandlers(deps) {
+    const { vscode: vscode2, escapeHtml: escapeHtml2 } = deps;
+    function opsRenderState2(msg2) {
+      opsRenderServerList2(msg2.servers || []);
+      opsRenderRecentOps2(msg2.recentOps || []);
+      const activeId = msg2.activeServerId;
+      if (activeId) {
+        const server = (msg2.servers || []).find((s) => s.id === activeId);
+        if (server)
+          opsRenderServerDetail2(server);
+      }
+    }
+    function opsRenderServerList2(servers) {
+      const el = document.getElementById("opsServerList");
+      if (!el)
+        return;
+      if (!servers || servers.length === 0) {
+        el.innerHTML = '<div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:12px;">No servers configured. Click "+ Add Server" to get started.</div>';
+        return;
+      }
+      el.innerHTML = servers.map((server) => {
+        const icon = STATUS_ICONS[server.status] || "\u26AA";
+        const color = STATUS_COLORS2[server.status] || "#6b7280";
+        const lastSeen = server.lastSeen ? formatRelativeTime(server.lastSeen) : "never";
+        const metrics = server.metrics;
+        let metricsHtml = "";
+        if (metrics) {
+          metricsHtml = `<div style="display:flex; gap:8px; font-size:9px; color:var(--text-secondary); margin-top:2px;">
+          <span style="color:${metrics.cpu > 80 ? "#ef4444" : "inherit"}">CPU: ${metrics.cpu}%</span>
+          <span style="color:${metrics.ram > 90 ? "#ef4444" : "inherit"}">RAM: ${metrics.ram}%</span>
+          <span style="color:${metrics.disk > 85 ? "#ef4444" : "inherit"}">Disk: ${metrics.disk}%</span>
+        </div>`;
+        }
+        return `<div class="ops-server-row" onclick="opsSelectServer('${server.id}')" style="cursor:pointer; ${msg?.activeServerId === server.id ? "border-color:var(--accent-color);" : ""}">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; font-weight:600;">${icon} ${escapeHtml2(server.name)}</span>
+          <span style="font-size:9px; color:${color};">${server.status}</span>
+        </div>
+        <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml2(server.user)}@${escapeHtml2(server.host)}:${server.port || 22}</div>
+        ${metricsHtml}
+        <div style="font-size:9px; color:var(--text-secondary); margin-top:2px;">Last seen: ${lastSeen}</div>
+      </div>`;
+      }).join("");
+    }
+    function opsRenderServerDetail2(server) {
+      const el = document.getElementById("opsServerDetail");
+      if (!el || !server)
+        return;
+      const icon = STATUS_ICONS[server.status] || "\u26AA";
+      const metrics = server.metrics;
+      const hardening = server.hardening;
+      let metricsHtml = '<div style="font-size:10px; color:var(--text-secondary);">No metrics yet. Run a health check.</div>';
+      if (metrics) {
+        metricsHtml = `
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; margin-top:4px;">
+          <div class="ops-metric-card">
+            <div style="font-size:9px; color:var(--text-secondary);">CPU</div>
+            <div style="font-size:16px; font-weight:700; color:${metrics.cpu > 80 ? "#ef4444" : "#22c55e"};">${metrics.cpu}%</div>
+          </div>
+          <div class="ops-metric-card">
+            <div style="font-size:9px; color:var(--text-secondary);">RAM</div>
+            <div style="font-size:16px; font-weight:700; color:${metrics.ram > 90 ? "#ef4444" : "#22c55e"};">${metrics.ram}%</div>
+          </div>
+          <div class="ops-metric-card">
+            <div style="font-size:9px; color:var(--text-secondary);">Disk</div>
+            <div style="font-size:16px; font-weight:700; color:${metrics.disk > 85 ? "#ef4444" : "#22c55e"};">${metrics.disk}%</div>
+          </div>
+        </div>
+      `;
+      }
+      let hardeningHtml = "";
+      if (hardening) {
+        const checks = [
+          { label: "Root login disabled", ok: hardening.rootLoginDisabled },
+          { label: "Password auth disabled", ok: hardening.passwordAuthDisabled },
+          { label: "Firewall active", ok: hardening.firewallActive },
+          { label: "Fail2ban running", ok: hardening.fail2banRunning },
+          { label: "Auto-updates enabled", ok: hardening.autoUpdatesEnabled }
+        ];
+        hardeningHtml = `<div style="margin-top:6px;">
+        <div style="font-size:10px; font-weight:600; margin-bottom:4px;">Hardening</div>
+        ${checks.map((c) => `<div style="font-size:9px;">${c.ok ? "\u2705" : "\u274C"} ${c.label}</div>`).join("")}
+        ${hardening.pendingUpdates > 0 ? `<div style="font-size:9px; color:#f59e0b; margin-top:2px;">\u26A0 ${hardening.pendingUpdates} pending update(s)</div>` : ""}
+      </div>`;
+      }
+      el.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <strong style="font-size:12px;">${icon} ${escapeHtml2(server.name)}</strong>
+        <div style="display:flex; gap:4px;">
+          <button class="btn-secondary" onclick="opsTestConnection('${server.id}')" style="padding:2px 6px; font-size:9px;">Test</button>
+          <button class="btn-secondary" onclick="opsHealthCheck('${server.id}')" style="padding:2px 6px; font-size:9px;">Health</button>
+          <button class="btn-secondary" onclick="opsRemoveServer('${server.id}')" style="padding:2px 6px; font-size:9px; color:#ef4444;">Remove</button>
+        </div>
+      </div>
+      <div style="font-size:10px; color:var(--text-secondary);">${escapeHtml2(server.user)}@${escapeHtml2(server.host)}:${server.port || 22}</div>
+      ${metricsHtml}
+      ${hardeningHtml}
+      <div style="display:flex; gap:4px; margin-top:8px; flex-wrap:wrap;">
+        <button class="btn-secondary" onclick="opsHardenServer('${server.id}', 'full')" style="padding:3px 8px; font-size:9px;">\u{1F512} Harden</button>
+        <button class="btn-secondary" onclick="opsHardenServer('${server.id}', 'updateOS')" style="padding:3px 8px; font-size:9px;">\u{1F504} Update OS</button>
+        <button class="btn-secondary" onclick="opsHardenServer('${server.id}', 'firewall')" style="padding:3px 8px; font-size:9px;">\u{1F6E1}\uFE0F Firewall</button>
+        <button class="btn-secondary" onclick="opsDeployService('${server.id}', 'coturn')" style="padding:3px 8px; font-size:9px;">\u{1F680} Deploy TURN</button>
+        <button class="btn-secondary" onclick="opsDeployService('${server.id}', 'unity')" style="padding:3px 8px; font-size:9px;">\u{1F3AE} Deploy Unity</button>
+      </div>
+    `;
+    }
+    function opsRenderRecentOps2(ops) {
+      const el = document.getElementById("opsRecentOpsList");
+      if (!el)
+        return;
+      if (!ops || ops.length === 0) {
+        el.innerHTML = '<div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:8px;">No operations yet.</div>';
+        return;
+      }
+      el.innerHTML = ops.slice(0, 15).map((op) => {
+        const statusIcon = op.status === "success" ? "\u2705" : op.status === "failed" ? "\u274C" : "\u{1F504}";
+        const time = new Date(op.timestamp).toLocaleTimeString();
+        return `<div class="ops-log-row" ${op.output ? `onclick="opsShowOpOutput('${op.id}')" style="cursor:pointer;"` : ""}>
+        <span style="font-size:9px; color:var(--text-secondary); min-width:50px;">${time}</span>
+        <span style="font-size:10px;">${statusIcon} ${escapeHtml2(op.action)}</span>
+        <span style="font-size:9px; color:var(--text-secondary);">${escapeHtml2(op.serverName)}</span>
+      </div>`;
+      }).join("");
+    }
+    function opsRenderCommandOutput2(msg2) {
+      const el = document.getElementById("opsCommandOutput");
+      if (!el)
+        return;
+      el.style.display = "block";
+      el.innerHTML = `<pre style="font-size:9px; white-space:pre-wrap; max-height:200px; overflow-y:auto; margin:0; padding:6px; background:var(--bg-primary); border-radius:4px; border:1px solid var(--border-color);">${escapeHtml2(msg2.output || "")}</pre>`;
+    }
+    function opsRequestState2() {
+      vscode2.postMessage({ type: "opsGetState" });
+    }
+    function opsAddServer2() {
+      const hostEl = document.getElementById("opsServerHost");
+      const userEl = document.getElementById("opsServerUser");
+      const nameEl = document.getElementById("opsServerName");
+      const host = hostEl?.value?.trim() || "";
+      const user = userEl?.value?.trim() || "root";
+      const name = nameEl?.value?.trim() || host;
+      if (!host) {
+        const statusEl = document.getElementById("opsAddStatus");
+        if (statusEl) {
+          statusEl.textContent = "Enter a hostname or IP.";
+          statusEl.style.color = "#ef4444";
+        }
+        return;
+      }
+      vscode2.postMessage({ type: "opsAddServer", host, user, name });
+      if (hostEl)
+        hostEl.value = "";
+      if (userEl)
+        userEl.value = "";
+      if (nameEl)
+        nameEl.value = "";
+    }
+    function opsRemoveServer2(serverId) {
+      vscode2.postMessage({ type: "opsRemoveServer", serverId });
+    }
+    function opsSelectServer2(serverId) {
+      vscode2.postMessage({ type: "opsSetActiveServer", serverId });
+    }
+    function opsTestConnection2(serverId) {
+      vscode2.postMessage({ type: "opsTestConnection", serverId });
+    }
+    function opsHealthCheck2(serverId) {
+      vscode2.postMessage({ type: "opsHealthCheck", serverId });
+    }
+    function opsHardenServer2(serverId, action) {
+      vscode2.postMessage({ type: "opsHardenServer", serverId, action: action || "full" });
+    }
+    function opsDeployService2(serverId, service) {
+      vscode2.postMessage({ type: "opsDeployService", serverId, service });
+    }
+    function opsExecuteCommand2(serverId) {
+      const cmdEl = document.getElementById("opsCommandInput");
+      const cmd = cmdEl?.value?.trim() || "";
+      if (!cmd)
+        return;
+      const sudoEl = document.getElementById("opsCommandSudo");
+      const sudo = sudoEl?.checked || false;
+      vscode2.postMessage({ type: "opsExecuteCommand", serverId, command: cmd, sudo });
+      if (cmdEl)
+        cmdEl.value = "";
+    }
+    function opsShowOpOutput2(opId) {
+      vscode2.postMessage({ type: "opsGetState" });
+    }
+    function formatRelativeTime(ts) {
+      if (!ts)
+        return "never";
+      const delta = Math.max(0, Date.now() - ts);
+      const sec = Math.floor(delta / 1e3);
+      if (sec < 60)
+        return sec + "s ago";
+      const min = Math.floor(sec / 60);
+      if (min < 60)
+        return min + "m ago";
+      const hr = Math.floor(min / 60);
+      if (hr < 24)
+        return hr + "h ago";
+      return Math.floor(hr / 24) + "d ago";
+    }
+    return {
+      // Render functions (called by messageRouter)
+      opsRenderState: opsRenderState2,
+      opsRenderServerList: opsRenderServerList2,
+      opsRenderServerDetail: opsRenderServerDetail2,
+      opsRenderRecentOps: opsRenderRecentOps2,
+      opsRenderCommandOutput: opsRenderCommandOutput2,
+      // Action functions (called by HTML onclick)
+      opsRequestState: opsRequestState2,
+      opsAddServer: opsAddServer2,
+      opsRemoveServer: opsRemoveServer2,
+      opsSelectServer: opsSelectServer2,
+      opsTestConnection: opsTestConnection2,
+      opsHealthCheck: opsHealthCheck2,
+      opsHardenServer: opsHardenServer2,
+      opsDeployService: opsDeployService2,
+      opsExecuteCommand: opsExecuteCommand2,
+      opsShowOpOutput: opsShowOpOutput2
+    };
+  }
+
+  // src/webview/panel/features/diagnostics.ts
+  function createDiagnosticsHandlers(deps) {
+    const { vscode: vscode2, escapeHtml: escapeHtml2, showToast: showToast2 } = deps;
+    function onDiagnosticsTabOpen2() {
+      vscode2.postMessage({ type: "diagnosticsGetLast" });
+    }
+    function runDiagnosticsScan2(mode) {
+      const btn = document.getElementById("diagScanBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Scanning...";
+      }
+      vscode2.postMessage({ type: "diagnosticsScan", mode: mode || "quick" });
+    }
+    function renderDiagnosticsResult2(result, error) {
+      const btn = document.getElementById("diagScanBtn");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Scan";
+      }
+      const container = document.getElementById("diagResultsContainer");
+      if (!container)
+        return;
+      if (error) {
+        container.innerHTML = `<div style="color:var(--error-color);padding:8px;font-size:11px;">${escapeHtml2(error)}</div>`;
+        return;
+      }
+      if (!result) {
+        container.innerHTML = '<div style="color:var(--text-secondary);padding:8px;font-size:11px;">No scan results yet. Click "Scan" to run diagnostics.</div>';
+        return;
+      }
+      const { summary, checks, duration } = result;
+      let html = `
+      <div style="display:flex;gap:8px;align-items:center;padding:6px 0;margin-bottom:6px;border-bottom:1px solid var(--border-color);">
+        <span style="font-size:12px;font-weight:600;color:${summary.failed > 0 ? "var(--error-color)" : summary.warned > 0 ? "#f59e0b" : "var(--success-color)"};">
+          ${summary.failed > 0 ? "FAIL" : summary.warned > 0 ? "WARN" : "PASS"}
+        </span>
+        <span style="font-size:10px;color:var(--text-secondary);">
+          ${summary.errors} errors, ${summary.warnings} warnings
+        </span>
+        <span style="font-size:10px;color:var(--text-secondary);margin-left:auto;">
+          ${duration}ms
+        </span>
+      </div>
+    `;
+      for (const check of checks) {
+        const statusColor = check.status === "pass" ? "var(--success-color)" : check.status === "fail" ? "var(--error-color)" : check.status === "warn" ? "#f59e0b" : "var(--text-secondary)";
+        const statusIcon = check.status === "pass" ? "&#10003;" : check.status === "fail" ? "&#10007;" : check.status === "warn" ? "&#9888;" : "&#8212;";
+        html += `
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span style="color:${statusColor};font-size:12px;">${statusIcon}</span>
+            <span style="font-size:11px;font-weight:600;">${escapeHtml2(check.name)}</span>
+            <span style="font-size:10px;color:var(--text-secondary);">${check.items.length} items, ${check.duration}ms</span>
+          </div>
+      `;
+        const items = check.items.slice(0, 20);
+        for (const item of items) {
+          const sevColor = item.severity === "error" ? "var(--error-color)" : item.severity === "warning" ? "#f59e0b" : "var(--text-secondary)";
+          const sevLabel = item.severity === "error" ? "ERR" : item.severity === "warning" ? "WRN" : "INF";
+          html += `
+          <div style="display:flex;align-items:flex-start;gap:6px;padding:3px 0 3px 18px;font-size:10px;cursor:pointer;border-radius:3px;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''" onclick="diagnosticsOpenFile('${escapeHtml2(item.file)}', ${item.line})">
+            <span style="color:${sevColor};font-weight:600;min-width:24px;">${sevLabel}</span>
+            <span style="color:var(--text-secondary);min-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml2(item.file.split("/").pop() || item.file)}:${item.line}</span>
+            <span style="flex:1;color:var(--text-primary);">${escapeHtml2(item.message)}</span>
+          </div>
+        `;
+        }
+        if (check.items.length > 20) {
+          html += `<div style="padding:3px 0 3px 18px;font-size:10px;color:var(--text-secondary);">... and ${check.items.length - 20} more</div>`;
+        }
+        html += "</div>";
+      }
+      container.innerHTML = html;
+    }
+    function renderDiagnosticsProgress2(stage, progress) {
+      const container = document.getElementById("diagResultsContainer");
+      if (!container)
+        return;
+      container.innerHTML = `<div style="padding:8px;font-size:11px;color:var(--text-secondary);">${escapeHtml2(stage)}</div>`;
+    }
+    function diagnosticsOpenFile2(file, line) {
+      vscode2.postMessage({ type: "diagnosticsOpenFile", file, line });
+    }
+    return {
+      onDiagnosticsTabOpen: onDiagnosticsTabOpen2,
+      runDiagnosticsScan: runDiagnosticsScan2,
+      renderDiagnosticsResult: renderDiagnosticsResult2,
+      renderDiagnosticsProgress: renderDiagnosticsProgress2,
+      diagnosticsOpenFile: diagnosticsOpenFile2
     };
   }
 
@@ -8511,6 +10165,35 @@
       handleDevExportError: handleDevExportError2,
       handleDevImportError: handleDevImportError2,
       renderUsageStats: renderUsageStats2,
+      engineerRenderStatus: engineerRenderStatus2,
+      engineerRenderSuggestions: engineerRenderSuggestions2,
+      engineerRenderHistory: engineerRenderHistory2,
+      engineerRenderPrompt: engineerRenderPrompt2,
+      engineerHandleDelegated: engineerHandleDelegated2,
+      engineerCheckSectors: engineerCheckSectors2,
+      autopilotRenderStatus: autopilotRenderStatus2,
+      autopilotRenderStepResult: autopilotRenderStepResult2,
+      autopilotRenderSessionPrompt: autopilotRenderSessionPrompt2,
+      autopilotRenderConfig: autopilotRenderConfig2,
+      gameuiRenderState: gameuiRenderState2,
+      gameuiRenderCatalog: gameuiRenderCatalog2,
+      gameuiRenderEvent: gameuiRenderEvent2,
+      gameuiRenderThemes: gameuiRenderThemes2,
+      dbRenderConnectionList: dbRenderConnectionList2,
+      dbRenderSchema: dbRenderSchema2,
+      dbRenderQueryResult: dbRenderQueryResult2,
+      dbRenderTestResult: dbRenderTestResult2,
+      chatSearchRenderResults: chatSearchRenderResults2,
+      commsRenderState: commsRenderState2,
+      commsRenderScanDetail: commsRenderScanDetail2,
+      commsRenderScanStarted: commsRenderScanStarted2,
+      commsRenderScanCompleted: commsRenderScanCompleted2,
+      commsRenderPrompt: commsRenderPrompt2,
+      opsRenderState: opsRenderState2,
+      opsRenderCommandOutput: opsRenderCommandOutput2,
+      opsRenderRecentOps: opsRenderRecentOps2,
+      renderDiagnosticsResult: renderDiagnosticsResult2,
+      renderDiagnosticsProgress: renderDiagnosticsProgress2,
       vscode: vscode2
     } = deps;
     function formatRelativeTime(ts) {
@@ -8529,7 +10212,7 @@
       const days = Math.floor(hr / 24);
       return days + "d ago";
     }
-    function handleMessage(msg) {
+    function handleMessage(msg2) {
       const chatSessions2 = getChatSessions();
       const currentChatId2 = getCurrentChatId();
       let unityConnected = getUnityConnected2();
@@ -8541,12 +10224,12 @@
       let planExecutionState = getPlanExecutionState2();
       let lastCoordinatorToast2 = getLastCoordinatorToast();
       const chatSplitActive = getChatSplitActive2();
-      switch (msg.type) {
+      switch (msg2.type) {
         case "info":
-          if (msg.message) {
-            shipSetStatus2(msg.message);
-            console.log("[SpaceCode UI] Info:", msg.message);
-            if (msg.message.toLowerCase().includes("unity")) {
+          if (msg2.message) {
+            shipSetStatus2(msg2.message);
+            console.log("[SpaceCode UI] Info:", msg2.message);
+            if (msg2.message.toLowerCase().includes("unity")) {
               setUnityButtonsLoading2(false);
               const statusEl = document.getElementById("unityStatus");
               if (statusEl && (statusEl.textContent === "\u25CF Loading..." || statusEl.textContent === "\u25CF Running...")) {
@@ -8560,14 +10243,14 @@
           }
           break;
         case "error":
-          setGenerating2(false, msg.chatId);
-          if (msg.message) {
-            shipSetStatus2("Error: " + msg.message);
-            console.error("[SpaceCode UI] Error:", msg.message);
-            if (!msg.chatId || msg.chatId === currentChatId2) {
-              addMessage2("system", "Error: " + msg.message);
+          setGenerating2(false, msg2.chatId);
+          if (msg2.message) {
+            shipSetStatus2("Error: " + msg2.message);
+            console.error("[SpaceCode UI] Error:", msg2.message);
+            if (!msg2.chatId || msg2.chatId === currentChatId2) {
+              addMessage2("system", "Error: " + msg2.message);
             }
-            const msgLower = msg.message.toLowerCase();
+            const msgLower = msg2.message.toLowerCase();
             if (msgLower.includes("unity") || msgLower.includes("coplay") || msgLower.includes("mcp") || msgLower.includes("reload")) {
               setUnityButtonsLoading2(false);
               const isConnectionError = msgLower.includes("not connected") || msgLower.includes("connection failed") || msgLower.includes("failed to connect") || msgLower.includes("timed out") && !msgLower.includes("script");
@@ -8585,40 +10268,40 @@
           }
           break;
         case "turn":
-          if (!msg.chatId || msg.chatId === currentChatId2) {
-            finalizeStreamingMessage2(msg.chatId || currentChatId2);
-            addMessage2(msg.turn.provider, msg.turn.message, msg.turn.response);
+          if (!msg2.chatId || msg2.chatId === currentChatId2) {
+            finalizeStreamingMessage2(msg2.chatId || currentChatId2);
+            addMessage2(msg2.turn.provider, msg2.turn.message, msg2.turn.response);
           } else {
-            const session = chatSessions2[msg.chatId];
+            const session = chatSessions2[msg2.chatId];
             if (session) {
-              const msgHtml = createMessageHtml2(msg.turn.provider, msg.turn.message, msg.turn.response);
+              const msgHtml = createMessageHtml2(msg2.turn.provider, msg2.turn.message, msg2.turn.response);
               session.messagesHtml = (session.messagesHtml || "") + msgHtml;
             }
           }
-          if (msg.turn.provider === "claude" || msg.turn.provider === "gpt") {
-            addToMessageHistory2("assistant", msg.turn.message, msg.chatId || currentChatId2);
+          if (msg2.turn.provider === "claude" || msg2.turn.provider === "gpt") {
+            addToMessageHistory2("assistant", msg2.turn.message, msg2.chatId || currentChatId2);
           }
           break;
         case "chunk":
-          if (!msg.chatId || msg.chatId === currentChatId2) {
-            appendToStreamingMessage2(msg.provider, msg.chunk, msg.chatId || currentChatId2);
-            if (typeof updateResponseNode === "function" && msg.chunk) {
-              const estimatedTokens = Math.ceil(msg.chunk.length / 4);
+          if (!msg2.chatId || msg2.chatId === currentChatId2) {
+            appendToStreamingMessage2(msg2.provider, msg2.chunk, msg2.chatId || currentChatId2);
+            if (typeof updateResponseNode === "function" && msg2.chunk) {
+              const estimatedTokens = Math.ceil(msg2.chunk.length / 4);
               updateResponseNode(estimatedTokens);
               if (typeof updateLiveResponseText2 === "function") {
                 const responseTokens = getFlowResponseTokens2();
-                updateLiveResponseText2(msg.chunk, responseTokens || estimatedTokens);
+                updateLiveResponseText2(msg2.chunk, responseTokens || estimatedTokens);
               }
             }
           }
           break;
         case "status":
-          document.getElementById("statusText").textContent = msg.status.message;
+          document.getElementById("statusText").textContent = msg2.status.message;
           break;
         case "complete":
-          setGenerating2(false, msg.chatId);
-          updateTokenBar2(msg.chatId || currentChatId2);
-          if (msg.gptConsultPending) {
+          setGenerating2(false, msg2.chatId);
+          updateTokenBar2(msg2.chatId || currentChatId2);
+          if (msg2.gptConsultPending) {
             _gptFlowPending2 = true;
             setGptFlowPending(_gptFlowPending2);
           } else {
@@ -8653,7 +10336,7 @@
                 pending.remove();
               const div = document.createElement("div");
               div.className = "message gpt";
-              div.innerHTML = '<div class="message-avatar">GPT</div><div class="message-content">' + (typeof marked !== "undefined" ? marked.parse(msg.response) : escapeHtml2(msg.response)) + "</div>";
+              div.innerHTML = '<div class="message-avatar">GPT</div><div class="message-content">' + (typeof marked !== "undefined" ? marked.parse(msg2.response) : escapeHtml2(msg2.response)) + "</div>";
               chatContainer.appendChild(div);
               chatContainer.scrollTop = chatContainer.scrollHeight;
               if (chatSplitActive)
@@ -8679,8 +10362,8 @@
                 pending.remove();
               const div = document.createElement("div");
               div.className = "message claude refined-message";
-              const renderedContent = typeof marked !== "undefined" ? marked.parse(msg.response) : escapeHtml2(msg.response);
-              const gptFeedbackHtml = msg.gptFeedback ? typeof marked !== "undefined" ? marked.parse(msg.gptFeedback) : escapeHtml2(msg.gptFeedback) : "";
+              const renderedContent = typeof marked !== "undefined" ? marked.parse(msg2.response) : escapeHtml2(msg2.response);
+              const gptFeedbackHtml = msg2.gptFeedback ? typeof marked !== "undefined" ? marked.parse(msg2.gptFeedback) : escapeHtml2(msg2.gptFeedback) : "";
               div.innerHTML = '<div class="message-avatar refined-avatar">C</div><div class="message-content"><div class="refined-badge">Refined with 2nd opinion</div>' + renderedContent + `<div class="refined-intro">The original answer was refined based on GPT's analysis.</div>` + (gptFeedbackHtml ? '<details class="gpt-feedback-details"><summary class="gpt-feedback-summary">GPT feedback</summary><div class="gpt-feedback-content">' + gptFeedbackHtml + "</div></details>" : "") + "</div>";
               chatContainer.appendChild(div);
               chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -8707,9 +10390,9 @@
                 pending.remove();
               const div = document.createElement("div");
               div.className = "message gpt-consult-silent";
-              if (msg.error) {
-                div.innerHTML = '<span class="consult-check consult-error">GPT consult: ' + msg.error + "</span>";
-              } else if (msg.hadInput) {
+              if (msg2.error) {
+                div.innerHTML = '<span class="consult-check consult-error">GPT consult: ' + msg2.error + "</span>";
+              } else if (msg2.hadInput) {
                 div.innerHTML = '<span class="consult-check">GPT reviewed \u2014 original answer stands</span>';
               } else {
                 div.innerHTML = '<span class="consult-check">GPT reviewed \u2014 no additional input</span>';
@@ -8722,20 +10405,20 @@
         case "sideChatResponse":
           break;
         case "summary":
-          addMessage2("summary", msg.content);
+          addMessage2("summary", msg2.content);
           break;
         case "compacted":
-          showCompactionNotice2(msg.summary, msg.originalMessageCount, msg.keptMessageCount);
+          showCompactionNotice2(msg2.summary, msg2.originalMessageCount, msg2.keptMessageCount);
           break;
         case "restoreChatState":
-          if (msg.state) {
-            restoreChatState2(msg.state);
+          if (msg2.state) {
+            restoreChatState2(msg2.state);
           }
           break;
         case "settings":
-          loadConnectionMethods2(msg.settings);
+          loadConnectionMethods2(msg2.settings);
           if (updateSettings2) {
-            updateSettings2(msg.settings);
+            updateSettings2(msg2.settings);
           }
           break;
         case "keysSaved":
@@ -8745,12 +10428,12 @@
           break;
         case "apiKeyValue":
           if (handleApiKeyValue2) {
-            handleApiKeyValue2(msg.provider, msg.value);
+            handleApiKeyValue2(msg2.provider, msg2.value);
           }
           break;
         case "devExportSuccess":
           if (handleDevExportSuccess2)
-            handleDevExportSuccess2(msg.path);
+            handleDevExportSuccess2(msg2.path);
           break;
         case "devImportSuccess":
           if (handleDevImportSuccess2)
@@ -8758,28 +10441,33 @@
           break;
         case "devExportError":
           if (handleDevExportError2)
-            handleDevExportError2(msg.error);
+            handleDevExportError2(msg2.error);
           break;
         case "devImportError":
           if (handleDevImportError2)
-            handleDevImportError2(msg.error);
+            handleDevImportError2(msg2.error);
           break;
         case "connectionMethodsSaved":
           break;
+        case "soundSettings":
+          if (typeof window.loadSoundSettingsUI === "function") {
+            window.loadSoundSettingsUI(msg2);
+          }
+          break;
         case "cliStatus":
-          renderCliStatus2(msg.status);
+          renderCliStatus2(msg2.status);
           break;
         case "mcpServers":
-          renderMcpServers2(msg.servers);
+          renderMcpServers2(msg2.servers);
           break;
         case "unityMCPAvailable":
-          updateUnityMCPStatus2(msg.available);
+          updateUnityMCPStatus2(msg2.available);
           break;
         case "insertChatMessage":
           const chatInputEl = document.getElementById("messageInput");
           if (chatInputEl) {
-            chatInputEl.value = msg.message;
-            if (msg.autoSend) {
+            chatInputEl.value = msg2.message;
+            if (msg2.autoSend) {
               sendMessage2();
             }
           } else {
@@ -8788,52 +10476,52 @@
           break;
         case "unityPanelUpdate":
           if (typeof updateUnityPanelInfo2 === "function") {
-            updateUnityPanelInfo2(msg.info);
+            updateUnityPanelInfo2(msg2.info);
           }
           break;
         case "kbEntries":
-          renderKbEntries2(msg.entries);
+          renderKbEntries2(msg2.entries);
           break;
         case "crawlProgress":
-          handleCrawlProgress2(msg.progress);
+          handleCrawlProgress2(msg2.progress);
           break;
         case "embedderStatus":
-          renderEmbedderStatus2(msg.status, msg.stats);
+          renderEmbedderStatus2(msg2.status, msg2.stats);
           break;
         case "modelDownloadProgress":
-          updateModelDownloadProgress2(msg.progress);
+          updateModelDownloadProgress2(msg2.progress);
           break;
         case "modelDownloadStarted":
           setModelDownloading2(true);
           break;
         case "embeddingProgress":
-          updateEmbeddingProgress2(msg.id, msg.current, msg.total);
+          updateEmbeddingProgress2(msg2.id, msg2.current, msg2.total);
           break;
         case "embedAllProgress":
-          updateEmbedAllProgress2(msg.entryIndex, msg.totalEntries, msg.chunkIndex, msg.totalChunks);
+          updateEmbedAllProgress2(msg2.entryIndex, msg2.totalEntries, msg2.chunkIndex, msg2.totalChunks);
           break;
         case "embedAllStarted":
           setEmbeddingAll2(true);
           break;
         case "costs":
-          renderCosts2(msg);
+          renderCosts2(msg2);
           break;
         case "usageStats":
           if (renderUsageStats2) {
-            renderUsageStats2(msg);
+            renderUsageStats2(msg2);
           }
           break;
         case "voiceSettings":
-          loadVoiceSettings2(msg.settings);
+          loadVoiceSettings2(msg2.settings);
           break;
         case "voiceDownloadProgress":
-          updateVoiceDownloadProgress2(msg.engine, msg.progress, msg.status);
+          updateVoiceDownloadProgress2(msg2.engine, msg2.progress, msg2.status);
           break;
         case "micTestStatus":
-          handleMicTestStatus2(msg.status, msg.message);
+          handleMicTestStatus2(msg2.status, msg2.message);
           break;
         case "speakerTestStatus":
-          handleSpeakerTestStatus2(msg.status, msg.message);
+          handleSpeakerTestStatus2(msg2.status, msg2.message);
           break;
         case "whisperDownloadStarted": {
           const btn = document.getElementById("whisperBinaryDownloadBtn");
@@ -8847,14 +10535,14 @@
           const btn = document.getElementById("whisperBinaryDownloadBtn");
           if (btn) {
             btn.disabled = false;
-            if (msg.success) {
+            if (msg2.success) {
               btn.textContent = "\u2713 Installed";
               btn.classList.add("success");
             } else {
               btn.textContent = "Download Binary";
               const statusEl = document.getElementById("whisperStatus");
-              if (statusEl && msg.error) {
-                statusEl.textContent = "Error: " + msg.error;
+              if (statusEl && msg2.error) {
+                statusEl.textContent = "Error: " + msg2.error;
                 statusEl.style.color = "var(--error-color)";
               }
             }
@@ -8864,143 +10552,164 @@
         case "activeBreadcrumb": {
           const el = document.getElementById("codeBreadcrumb");
           if (el) {
-            el.textContent = msg.breadcrumb || "No active file";
-            if (msg.filePath)
-              el.title = msg.filePath;
+            el.textContent = msg2.breadcrumb || "No active file";
+            if (msg2.filePath)
+              el.title = msg2.filePath;
           }
           break;
         }
         case "shipSelected":
-          if (msg.sectorId) {
-            setShipSelectedSectorId2(msg.sectorId);
+          if (msg2.sectorId) {
+            setShipSelectedSectorId2(msg2.sectorId);
             shipRender2();
             updateStationLabels2();
           }
-          if (msg.profile) {
-            setShipProfile2(msg.profile);
+          if (msg2.profile) {
+            setShipProfile2(msg2.profile);
             const sel = document.getElementById("shipProfileSelect");
             if (sel)
-              sel.value = msg.profile;
+              sel.value = msg2.profile;
             updateStationLabels2();
           }
           break;
         case "shipSectorDetected":
-          if (msg.sectorId && msg.sectorId !== getShipSelectedSectorId2()) {
-            setShipSelectedSectorId2(msg.sectorId);
+          if (msg2.sectorId && msg2.sectorId !== getShipSelectedSectorId2()) {
+            setShipSelectedSectorId2(msg2.sectorId);
             setShipSelectedSubId2(null);
             shipRender2();
             updateStationLabels2();
-            const fileName = msg.filePath ? msg.filePath.split("/").pop() : "";
-            shipSetStatus2("Auto-detected: " + (msg.sectorName || msg.sectorId) + (fileName ? " (from " + fileName + ")" : ""));
+            const fileName = msg2.filePath ? msg2.filePath.split("/").pop() : "";
+            shipSetStatus2("Auto-detected: " + (msg2.sectorName || msg2.sectorId) + (fileName ? " (from " + fileName + ")" : ""));
           }
           break;
         case "shipAutoexecute":
-          setShipAutoexecute2(!!msg.enabled);
+          setShipAutoexecute2(!!msg2.enabled);
           shipUpdateChips2();
           break;
         case "shipContextPack":
-          if (msg.injectionText) {
-            shipSetStatus2("Context Pack ready for " + (msg.sectorId || getShipSelectedSectorId2()) + ".");
-            addMessage2("system", "Context Pack (preview):\\n" + msg.injectionText);
+          if (msg2.injectionText) {
+            shipSetStatus2("Context Pack ready for " + (msg2.sectorId || getShipSelectedSectorId2()) + ".");
+            addMessage2("system", "Context Pack (preview):\\n" + msg2.injectionText);
           }
           break;
         case "shipGateResult":
-          shipSetStatus2(msg.ok ? "Gates passed" : "Gates failed");
+          shipSetStatus2(msg2.ok ? "Gates passed" : "Gates failed");
           const gatesBox = document.getElementById("gatesResult");
           const gatesStatus = document.getElementById("gatesResultStatus");
           const gatesContent = document.getElementById("gatesResultContent");
           if (gatesBox && gatesStatus && gatesContent) {
             gatesBox.style.display = "block";
-            gatesStatus.textContent = msg.ok ? "\u2705 PASSED" : "\u274C FAILED";
-            gatesStatus.style.color = msg.ok ? "#4caf50" : "#f44336";
-            gatesContent.textContent = msg.summary || "No details";
+            gatesStatus.textContent = msg2.ok ? "\u2705 PASSED" : "\u274C FAILED";
+            gatesStatus.style.color = msg2.ok ? "#4caf50" : "#f44336";
+            gatesContent.textContent = msg2.summary || "No details";
           }
           const ctrlBox = document.getElementById("controlGatesResult");
           const ctrlStatus = document.getElementById("controlGatesStatus");
           const ctrlContent = document.getElementById("controlGatesContent");
           if (ctrlBox && ctrlStatus && ctrlContent) {
             ctrlBox.style.display = "block";
-            ctrlBox.style.borderLeftColor = msg.ok ? "#4caf50" : "#f44336";
-            ctrlStatus.textContent = msg.ok ? "\u2705 PASSED" : "\u274C FAILED";
-            ctrlStatus.style.color = msg.ok ? "#4caf50" : "#f44336";
-            ctrlContent.textContent = msg.summary || "No details";
+            ctrlBox.style.borderLeftColor = msg2.ok ? "#4caf50" : "#f44336";
+            ctrlStatus.textContent = msg2.ok ? "\u2705 PASSED" : "\u274C FAILED";
+            ctrlStatus.style.color = msg2.ok ? "#4caf50" : "#f44336";
+            ctrlContent.textContent = msg2.summary || "No details";
           }
           break;
         case "shipDocsStatus":
-          shipSetStatus2(msg.summary || "Docs status updated.");
+          shipSetStatus2(msg2.summary || "Docs status updated.");
           break;
         case "asmdefInventory":
-          renderAsmdefInventory2(msg.inventory || null);
+          renderAsmdefInventory2(msg2.inventory || null);
           shipSetStatus2("Asmdef inventory loaded.");
           break;
         case "asmdefPolicyGenerated":
           shipSetStatus2("Asmdef policy generated.");
-          if (msg.policyPath) {
-            addMessage2("system", "Asmdef policy generated at:\\n" + msg.policyPath);
+          if (msg2.policyPath) {
+            addMessage2("system", "Asmdef policy generated at:\\n" + msg2.policyPath);
           }
           asmdefRefresh2();
           break;
         case "asmdefPolicyMode":
-          shipSetStatus2("Asmdef policy set to " + (msg.mode || "strict") + ".");
-          if (msg.policyPath) {
-            addMessage2("system", "Asmdef policy updated:\\n" + msg.policyPath);
+          shipSetStatus2("Asmdef policy set to " + (msg2.mode || "strict") + ".");
+          if (msg2.policyPath) {
+            addMessage2("system", "Asmdef policy updated:\\n" + msg2.policyPath);
           }
           asmdefRefresh2();
           break;
         case "asmdefPolicy":
-          renderAsmdefPolicyEditor2(msg);
+          renderAsmdefPolicyEditor2(msg2);
           shipSetStatus2("Asmdef policy loaded.");
           break;
         case "asmdefPolicySaved":
           shipSetStatus2("Asmdef policy saved.");
-          if (msg.policyPath) {
-            addMessage2("system", "Asmdef policy saved to:\\n" + msg.policyPath);
+          if (msg2.policyPath) {
+            addMessage2("system", "Asmdef policy saved to:\\n" + msg2.policyPath);
           }
           asmdefRefresh2();
           break;
         case "asmdefGuidsNormalized":
-          if (msg.result) {
-            const count = msg.result.replacements || 0;
+          if (msg2.result) {
+            const count = msg2.result.replacements || 0;
             shipSetStatus2(count ? "Normalized " + count + " GUID refs." : "No GUID refs to normalize.");
-            if (Array.isArray(msg.result.warnings) && msg.result.warnings.length) {
-              addMessage2("system", "GUID normalize warnings:\\n" + msg.result.warnings.join("\\n"));
+            if (Array.isArray(msg2.result.warnings) && msg2.result.warnings.length) {
+              addMessage2("system", "GUID normalize warnings:\\n" + msg2.result.warnings.join("\\n"));
             }
           }
           asmdefRefresh2();
           break;
         case "asmdefGraph":
-          renderAsmdefGraph2(msg.graph || null);
+          renderAsmdefGraph2(msg2.graph || null);
           shipSetStatus2("Asmdef graph loaded.");
           break;
         case "asmdefCheckResult":
-          renderAsmdefCheckResult2(msg.result || null);
+          renderAsmdefCheckResult2(msg2.result || null);
           shipSetStatus2("Asmdef validation complete.");
           break;
         case "sectorMapData":
           if (typeof renderSectorMap2 === "function") {
-            renderSectorMap2(msg);
+            renderSectorMap2(msg2);
             const smSummary = document.getElementById("sectorMapSummaryText");
             const smBadge = document.getElementById("sectorMapBadge");
             const smHealthBadge = document.getElementById("sectorMapHealthBadge");
             if (smSummary) {
-              const sCount = (msg.sectors || []).length;
-              const vCount = msg.totalViolations || 0;
+              const sCount = (msg2.sectors || []).length;
+              const vCount = msg2.totalViolations || 0;
               smSummary.textContent = sCount + " sectors" + (vCount ? " \xB7 " + vCount + " violations" : " \xB7 All clear");
             }
             if (smBadge) {
-              smBadge.textContent = (msg.sectors || []).length + " sectors";
+              smBadge.textContent = (msg2.sectors || []).length + " sectors";
             }
-            if (smHealthBadge && typeof msg.avgHealth === "number") {
-              const pct = Math.round(msg.avgHealth * 100);
+            if (smHealthBadge && typeof msg2.avgHealth === "number") {
+              const pct = Math.round(msg2.avgHealth * 100);
               const hColor = pct >= 90 ? "#22c55e" : pct >= 70 ? "#f59e0b" : "#ef4444";
               const hLabel = pct >= 90 ? "Healthy" : pct >= 70 ? "Warning" : "Critical";
-              smHealthBadge.textContent = "\u25CF " + hLabel + " (" + pct + "%)";
+              let trendArrow = "";
+              try {
+                const TREND_KEY = "spacecode.healthTrend";
+                const raw = localStorage.getItem(TREND_KEY);
+                const history = raw ? JSON.parse(raw) : [];
+                history.push({ t: Date.now(), h: msg2.avgHealth });
+                while (history.length > 10)
+                  history.shift();
+                localStorage.setItem(TREND_KEY, JSON.stringify(history));
+                if (history.length >= 2) {
+                  const prev = history[history.length - 2].h;
+                  const diff = msg2.avgHealth - prev;
+                  if (diff > 0.02)
+                    trendArrow = " \u2191";
+                  else if (diff < -0.02)
+                    trendArrow = " \u2193";
+                  else
+                    trendArrow = " \u2192";
+                }
+              } catch (_e) {
+              }
+              smHealthBadge.textContent = "\u25CF " + hLabel + " (" + pct + "%)" + trendArrow;
               smHealthBadge.style.color = hColor;
             } else if (smHealthBadge) {
-              if (msg.passed === true) {
+              if (msg2.passed === true) {
                 smHealthBadge.textContent = "\u25CF Healthy";
                 smHealthBadge.style.color = "#22c55e";
-              } else if (msg.passed === false) {
+              } else if (msg2.passed === false) {
                 smHealthBadge.textContent = "\u25CF Violations";
                 smHealthBadge.style.color = "#ef4444";
               } else {
@@ -9008,21 +10717,21 @@
               }
             }
             if (smSummary) {
-              if (msg.cycles && msg.cycles.length > 0) {
-                smSummary.textContent += " \xB7 " + msg.cycles.length + " cycle(s)";
+              if (msg2.cycles && msg2.cycles.length > 0) {
+                smSummary.textContent += " \xB7 " + msg2.cycles.length + " cycle(s)";
               }
-              if (msg.orphanFileCount > 0) {
-                smSummary.textContent += " \xB7 " + msg.orphanFileCount + " unmapped files";
+              if (msg2.orphanFileCount > 0) {
+                smSummary.textContent += " \xB7 " + msg2.orphanFileCount + " unmapped files";
               }
             }
             const tierBanner = document.getElementById("sectorMapTierBanner");
             if (tierBanner) {
-              if (msg.tier === "mapped") {
+              if (msg2.tier === "mapped") {
                 tierBanner.style.display = "block";
                 tierBanner.textContent = "\u2139 Sector config found but no .asmdef files detected. Dependency validation is limited to sector rules only.";
                 tierBanner.style.borderColor = "rgba(245,158,11,0.3)";
                 tierBanner.style.color = "#f59e0b";
-              } else if (msg.tier === "empty") {
+              } else if (msg2.tier === "empty") {
                 tierBanner.style.display = "block";
                 tierBanner.textContent = "\u2139 No sector config or .asmdef files found. Add a .spacecode/sectors.json to define project sectors.";
                 tierBanner.style.borderColor = "rgba(100,130,170,0.3)";
@@ -9046,23 +10755,23 @@
           const violationsEl = document.getElementById("sectorDetailViolations");
           const violationsListEl = document.getElementById("sectorDetailViolationsList");
           const scriptsEl = document.getElementById("sectorDetailScripts");
-          if (card && msg.sector) {
+          if (card && msg2.sector) {
             card.style.display = "block";
-            card.style.borderLeftColor = msg.sector.color || "#6366f1";
+            card.style.borderLeftColor = msg2.sector.color || "#6366f1";
             if (nameEl) {
-              nameEl.textContent = msg.sector.name;
-              nameEl.dataset.sectorId = msg.sector.id;
+              nameEl.textContent = msg2.sector.name;
+              nameEl.dataset.sectorId = msg2.sector.id;
             }
             if (techEl)
-              techEl.textContent = msg.sector.id + " \xB7 " + (msg.sector.paths || []).join(", ");
+              techEl.textContent = msg2.sector.id + " \xB7 " + (msg2.sector.paths || []).join(", ");
             if (healthEl)
-              healthEl.textContent = msg.sector.approvalRequired ? "\u26A0 Approval required for changes" : "";
+              healthEl.textContent = msg2.sector.approvalRequired ? "\u26A0 Approval required for changes" : "";
             if (depsEl)
-              depsEl.textContent = (msg.sector.dependencies || []).length > 0 ? "Dependencies: " + msg.sector.dependencies.join(", ") : "No dependencies";
+              depsEl.textContent = (msg2.sector.dependencies || []).length > 0 ? "Dependencies: " + msg2.sector.dependencies.join(", ") : "No dependencies";
             if (descEl)
-              descEl.textContent = msg.sector.description || "";
+              descEl.textContent = msg2.sector.description || "";
             if (boundariesEl && boundariesListEl) {
-              const paths = msg.sector.paths || [];
+              const paths = msg2.sector.paths || [];
               if (paths.length > 0) {
                 boundariesEl.style.display = "block";
                 boundariesListEl.innerHTML = paths.map(function(p) {
@@ -9073,7 +10782,7 @@
               }
             }
             if (violationsEl && violationsListEl) {
-              const violations = msg.sector.violations || [];
+              const violations = msg2.sector.violations || [];
               if (violations.length > 0) {
                 violationsEl.style.display = "block";
                 violationsListEl.innerHTML = violations.map(function(v) {
@@ -9084,7 +10793,7 @@
               }
             }
             if (scriptsEl) {
-              const scripts = msg.sector.scripts || 0;
+              const scripts = msg2.sector.scripts || 0;
               if (scripts > 0) {
                 scriptsEl.style.display = "block";
                 scriptsEl.textContent = "Assemblies: " + scripts;
@@ -9095,28 +10804,140 @@
           }
           break;
         }
+        case "sectorConfigData": {
+          const list = document.getElementById("sectorConfigList");
+          const templateSelect2 = document.getElementById("sectorTemplateSelect");
+          const statusEl = document.getElementById("sectorConfigStatus");
+          if (list) {
+            list.innerHTML = "";
+            const sectors = msg2.sectors || [];
+            sectors.forEach(function(s, idx) {
+              const row = document.createElement("div");
+              row.className = "sector-config-row";
+              row.dataset.index = String(idx);
+              row.dataset.description = s.description || "";
+              row.dataset.rules = s.rules || "";
+              row.dataset.icon = s.icon || "cpu";
+              row.innerHTML = '<div style="display:flex; gap:4px; align-items:center;"><input type="color" value="' + (s.color || "#6366f1") + '" class="sector-color-input" /><input type="text" value="' + escapeHtml2(s.id || "") + '" class="sector-id-input" style="width:80px;" /><input type="text" value="' + escapeHtml2(s.name || "") + '" class="sector-name-input" style="flex:1;" /><button class="btn-secondary" onclick="sectorConfigRemoveRow(this)" style="padding:2px 6px; font-size:10px;">&#x2715;</button></div><div style="display:flex; gap:4px; margin-top:3px;"><input type="text" value="' + escapeHtml2((s.paths || []).join(", ")) + '" class="sector-paths-input" style="flex:1;" placeholder="Paths: **/Folder/**" /></div><div style="display:flex; gap:4px; margin-top:3px;"><input type="text" value="' + escapeHtml2((s.dependencies || []).join(", ")) + '" class="sector-deps-input" style="flex:1;" placeholder="Dependencies: core, inventory" /><label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" class="sector-approval-input" ' + (s.approvalRequired ? "checked" : "") + " /> Approval</label></div>";
+              list.appendChild(row);
+            });
+          }
+          if (templateSelect2 && msg2.templates) {
+            templateSelect2.innerHTML = '<option value="">(custom)</option>';
+            msg2.templates.forEach(function(t) {
+              const opt = document.createElement("option");
+              opt.value = t.id;
+              opt.textContent = t.label + " (" + t.sectorCount + " sectors)";
+              templateSelect2.appendChild(opt);
+            });
+            if (msg2.appliedTemplate) {
+              templateSelect2.value = msg2.appliedTemplate;
+            }
+          }
+          if (statusEl) {
+            if (msg2.imported) {
+              statusEl.textContent = "Imported " + (msg2.sectors || []).length + " sectors. Click Save to apply.";
+            } else if (msg2.appliedTemplate) {
+              statusEl.textContent = "Template applied. Click Save to persist.";
+            } else {
+              statusEl.textContent = (msg2.sectors || []).length + " sectors loaded.";
+            }
+          }
+          break;
+        }
+        case "sectorConfigSaved": {
+          const statusEl2 = document.getElementById("sectorConfigStatus");
+          if (statusEl2)
+            statusEl2.textContent = "Configuration saved to " + (msg2.configPath || "disk") + ".";
+          shipSetStatus2("Sector configuration saved. Map refreshed.");
+          break;
+        }
+        case "sectorConfigSuggested": {
+          const list2 = document.getElementById("sectorConfigList");
+          const statusEl3 = document.getElementById("sectorConfigStatus");
+          const detected = msg2.sectors || [];
+          if (detected.length === 0) {
+            if (statusEl3)
+              statusEl3.textContent = "No sectors detected. Add manually or choose a template.";
+            break;
+          }
+          if (list2) {
+            list2.innerHTML = "";
+            detected.forEach(function(s, idx) {
+              const row = document.createElement("div");
+              row.className = "sector-config-row";
+              row.dataset.index = String(idx);
+              row.dataset.description = s.description || "";
+              row.dataset.rules = s.rules || "";
+              row.dataset.icon = s.icon || "cpu";
+              row.innerHTML = '<div style="display:flex; gap:4px; align-items:center;"><input type="color" value="' + (s.color || "#6366f1") + '" class="sector-color-input" /><input type="text" value="' + escapeHtml2(s.id || "") + '" class="sector-id-input" style="width:80px;" /><input type="text" value="' + escapeHtml2(s.name || "") + '" class="sector-name-input" style="flex:1;" /><span style="font-size:9px; color:var(--text-secondary); padding:0 4px;">' + escapeHtml2(s.source || "") + '</span><button class="btn-secondary" onclick="sectorConfigRemoveRow(this)" style="padding:2px 6px; font-size:10px;">&#x2715;</button></div><div style="display:flex; gap:4px; margin-top:3px;"><input type="text" value="' + escapeHtml2((s.paths || []).join(", ")) + '" class="sector-paths-input" style="flex:1;" /></div><div style="display:flex; gap:4px; margin-top:3px;"><input type="text" value="' + escapeHtml2((s.dependencies || []).join(", ")) + '" class="sector-deps-input" style="flex:1;" /><label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" class="sector-approval-input" /> Approval</label></div>';
+              list2.appendChild(row);
+            });
+          }
+          if (statusEl3)
+            statusEl3.textContent = "Detected " + detected.length + " sectors. Review and Save.";
+          break;
+        }
+        case "sectorConfigExported": {
+          const statusEl4 = document.getElementById("sectorConfigStatus");
+          if (statusEl4)
+            statusEl4.textContent = "Exported to " + (msg2.path || "file") + ".";
+          shipSetStatus2("Sector config exported.");
+          break;
+        }
+        case "engineerStatus": {
+          if (typeof engineerRenderStatus2 === "function") {
+            engineerRenderStatus2(msg2);
+          }
+          break;
+        }
+        case "engineerSuggestions": {
+          if (typeof engineerRenderSuggestions2 === "function") {
+            engineerRenderSuggestions2(msg2.suggestions || []);
+            engineerCheckSectors2(msg2.suggestions || []);
+          }
+          break;
+        }
+        case "engineerHistory": {
+          if (typeof engineerRenderHistory2 === "function") {
+            engineerRenderHistory2(msg2.history || []);
+          }
+          break;
+        }
+        case "engineerPrompt": {
+          if (typeof engineerRenderPrompt2 === "function") {
+            engineerRenderPrompt2(msg2);
+          }
+          break;
+        }
+        case "engineerDelegated": {
+          if (typeof engineerHandleDelegated2 === "function") {
+            engineerHandleDelegated2(msg2);
+          }
+          break;
+        }
         case "coordinatorHealth": {
-          if (msg.url) {
+          if (msg2.url) {
             const urlEl = document.getElementById("coordinatorUrlLabel");
             if (urlEl)
-              urlEl.textContent = msg.url;
+              urlEl.textContent = msg2.url;
             const urlPanelEl = document.getElementById("coordinatorUrlLabelPanel");
             if (urlPanelEl)
-              urlPanelEl.textContent = msg.url;
+              urlPanelEl.textContent = msg2.url;
           }
           let healthIssue = "none";
-          if (!msg.ok) {
-            healthIssue = msg.status === "disabled" ? "disabled" : "disconnected";
+          if (!msg2.ok) {
+            healthIssue = msg2.status === "disabled" ? "disabled" : "disconnected";
           }
           const badge = document.getElementById("coordinatorStatusBadge");
           const badgePanel = document.getElementById("coordinatorStatusBadgePanel");
           if (badge) {
             badge.classList.remove("ok", "bad", "muted");
-            if (msg.ok) {
+            if (msg2.ok) {
               badge.textContent = "Connected";
               badge.classList.add("ok");
               shipSetStatus2("Coordinator connected.");
-            } else if (msg.status === "disabled") {
+            } else if (msg2.status === "disabled") {
               badge.textContent = "Disabled";
               badge.classList.add("muted");
               shipSetStatus2("Coordinator disabled.");
@@ -9134,10 +10955,10 @@
           }
           if (badgePanel) {
             badgePanel.classList.remove("ok", "bad", "muted");
-            if (msg.ok) {
+            if (msg2.ok) {
               badgePanel.textContent = "Connected";
               badgePanel.classList.add("ok");
-            } else if (msg.status === "disabled") {
+            } else if (msg2.status === "disabled") {
               badgePanel.textContent = "Disabled";
               badgePanel.classList.add("muted");
             } else {
@@ -9150,8 +10971,8 @@
           break;
         }
         case "coordinatorSync": {
-          const sync = msg.sync || {};
-          const status = msg.status || {};
+          const sync = msg2.sync || {};
+          const status = msg2.status || {};
           const policyEl = document.getElementById("coordinatorPolicySync");
           const invEl = document.getElementById("coordinatorInventorySync");
           const graphEl = document.getElementById("coordinatorGraphSync");
@@ -9198,46 +11019,46 @@
           break;
         }
         case "autoexecuteJobs":
-          renderJobList2(msg.jobs || []);
+          renderJobList2(msg2.jobs || []);
           break;
         case "autoexecuteBlocked":
-          shipSetStatus2(msg.message || "Action blocked; enable Autoexecute.");
+          shipSetStatus2(msg2.message || "Action blocked; enable Autoexecute.");
           break;
         case "planningStateUpdate":
           if (typeof renderPlanningPanel2 === "function") {
-            renderPlanningPanel2(msg.state);
+            renderPlanningPanel2(msg2.state);
           }
           break;
         case "planningError":
-          shipSetStatus2(msg.error || "Planning error.");
+          shipSetStatus2(msg2.error || "Planning error.");
           break;
         case "contextPreview":
-          if (typeof msg.text === "string") {
-            setContextPreview2(msg.text);
+          if (typeof msg2.text === "string") {
+            setContextPreview2(msg2.text);
           }
           break;
         case "aiFlowStart":
-          console.log("[SpaceCode] aiFlowStart:", msg.query);
-          startAiFlow2(msg.query, msg.queryTokens);
+          console.log("[SpaceCode] aiFlowStart:", msg2.query);
+          startAiFlow2(msg2.query, msg2.queryTokens);
           setAiStage2("retrieving", "Retrieving context...");
           clearContextSources2();
           hideLiveResponse2();
           break;
         case "aiFlowChunk":
-          console.log("[SpaceCode] aiFlowChunk:", msg.chunk);
-          if (msg.chunk) {
-            spawnFlowChunk2(msg.chunk);
-            addContextSourceCard2(msg.chunk);
+          console.log("[SpaceCode] aiFlowChunk:", msg2.chunk);
+          if (msg2.chunk) {
+            spawnFlowChunk2(msg2.chunk);
+            addContextSourceCard2(msg2.chunk);
           }
           break;
         case "aiFlowThinking":
-          console.log("[SpaceCode] aiFlowThinking:", msg.stage, "provider:", msg.provider, "nodeId:", msg.nodeId, "modelLabel:", msg.modelLabel);
-          setFlowThinking2(true, msg.stage, msg.provider, msg.nodeId || "main", msg.modelLabel);
-          setAiStage2("generating", msg.stage || "Generating response...");
+          console.log("[SpaceCode] aiFlowThinking:", msg2.stage, "provider:", msg2.provider, "nodeId:", msg2.nodeId, "modelLabel:", msg2.modelLabel);
+          setFlowThinking2(true, msg2.stage, msg2.provider, msg2.nodeId || "main", msg2.modelLabel);
+          setAiStage2("generating", msg2.stage || "Generating response...");
           showLiveResponse2();
           break;
         case "aiFlowComplete":
-          console.log("[SpaceCode] aiFlowComplete, tokens:", msg.tokens, "gptFlowPending:", _gptFlowPending2);
+          console.log("[SpaceCode] aiFlowComplete, tokens:", msg2.tokens, "gptFlowPending:", _gptFlowPending2);
           if (_gptFlowPending2) {
             console.log("[SpaceCode] aiFlowComplete ignored \u2014 GPT consultation still pending");
             break;
@@ -9248,32 +11069,32 @@
           stopParticleFlow2();
           const phaseEl = document.getElementById("flowPanelPhase");
           if (phaseEl)
-            phaseEl.textContent = msg.error ? "Error" : "Complete";
+            phaseEl.textContent = msg2.error ? "Error" : "Complete";
           break;
         case "aiFlowUpdate":
-          console.log("[SpaceCode] aiFlowUpdate (legacy):", msg.data);
-          if (msg.data) {
-            renderAiFlow2(msg.data);
+          console.log("[SpaceCode] aiFlowUpdate (legacy):", msg2.data);
+          if (msg2.data) {
+            renderAiFlow2(msg2.data);
           }
           break;
         case "aiFlowClear":
           clearAiFlow2();
           break;
         case "docTargets":
-          populateDocTargets2(Array.isArray(msg.targets) ? msg.targets : []);
+          populateDocTargets2(Array.isArray(msg2.targets) ? msg2.targets : []);
           break;
         case "docInfo":
-          updateDocInfo2(msg.info || null);
+          updateDocInfo2(msg2.info || null);
           break;
         case "unityStatus":
           setUnityButtonsLoading2(false);
-          updateUnityStatus2(msg.status || { connected: false }, msg.token);
+          updateUnityStatus2(msg2.status || { connected: false }, msg2.token);
           break;
         case "unityConsole":
-          updateUnityConsole2(msg.messages || []);
+          updateUnityConsole2(msg2.messages || []);
           break;
         case "unityLogs":
-          console.log("[SpaceCode UI] Received unityLogs:", msg.logs);
+          console.log("[SpaceCode UI] Received unityLogs:", msg2.logs);
           setUnityButtonsLoading2(false);
           {
             const statusEl = document.getElementById("unityStatus");
@@ -9285,16 +11106,16 @@
               updateUnityMCPStatus2(true);
             }
           }
-          if (msg.logs) {
+          if (msg2.logs) {
             let logs = [];
-            if (typeof msg.logs === "string") {
-              logs = msg.logs.split("\\n").filter((l) => l.trim()).map((l) => {
+            if (typeof msg2.logs === "string") {
+              logs = msg2.logs.split("\\n").filter((l) => l.trim()).map((l) => {
                 const isError = l.includes("Error") || l.includes("Exception");
                 const isWarning = l.includes("Warning");
                 return { type: isError ? "Error" : isWarning ? "Warning" : "Log", message: l };
               });
-            } else if (Array.isArray(msg.logs)) {
-              logs = msg.logs.map((l) => {
+            } else if (Array.isArray(msg2.logs)) {
+              logs = msg2.logs.map((l) => {
                 if (typeof l === "string") {
                   const isError = l.includes("Error") || l.includes("Exception");
                   const isWarning = l.includes("Warning");
@@ -9305,8 +11126,8 @@
                   message: l.message || l.text || String(l)
                 };
               });
-            } else if (msg.logs.logs) {
-              logs = msg.logs.logs.map((l) => ({
+            } else if (msg2.logs.logs) {
+              logs = msg2.logs.logs.map((l) => ({
                 type: l.logType === "Error" ? "Error" : l.logType === "Warning" ? "Warning" : "Log",
                 message: l.message || l.text || String(l)
               }));
@@ -9321,7 +11142,7 @@
           }
           break;
         case "unityErrors":
-          console.log("[SpaceCode UI] Received unityErrors:", msg);
+          console.log("[SpaceCode UI] Received unityErrors:", msg2);
           setUnityButtonsLoading2(false);
           {
             const statusEl = document.getElementById("unityStatus");
@@ -9333,12 +11154,12 @@
               updateUnityMCPStatus2(true);
             }
           }
-          if (msg.hasErrors && msg.errors) {
+          if (msg2.hasErrors && msg2.errors) {
             let errorMsgs = [];
-            if (typeof msg.errors === "string") {
-              errorMsgs = [{ type: "Error", message: msg.errors }];
-            } else if (Array.isArray(msg.errors)) {
-              errorMsgs = msg.errors.map((e) => ({ type: "Error", message: typeof e === "string" ? e : e.message || String(e) }));
+            if (typeof msg2.errors === "string") {
+              errorMsgs = [{ type: "Error", message: msg2.errors }];
+            } else if (Array.isArray(msg2.errors)) {
+              errorMsgs = msg2.errors.map((e) => ({ type: "Error", message: typeof e === "string" ? e : e.message || String(e) }));
             }
             console.log("[SpaceCode UI] Showing", errorMsgs.length, "compile errors");
             updateUnityConsole2(errorMsgs);
@@ -9349,16 +11170,16 @@
           }
           break;
         case "diffResult":
-          updateDiffSummary2(msg.diff || null);
+          updateDiffSummary2(msg2.diff || null);
           break;
         case "planComparisonResult":
-          updatePlanComparison2(msg.result || null);
+          updatePlanComparison2(msg2.result || null);
           break;
         case "testResult":
-          updateTestResult2(msg);
+          updateTestResult2(msg2);
           break;
         case "planTemplates":
-          planTemplates2 = Array.isArray(msg.templates) ? msg.templates : [];
+          planTemplates2 = Array.isArray(msg2.templates) ? msg2.templates : [];
           setPlanTemplates(planTemplates2);
           const templateSelect = document.getElementById("planTemplateSelect");
           if (templateSelect) {
@@ -9373,12 +11194,12 @@
           shipSetStatus2("Plan templates loaded.");
           break;
         case "planList":
-          planList2 = Array.isArray(msg.plans) ? msg.plans : [];
+          planList2 = Array.isArray(msg2.plans) ? msg2.plans : [];
           setPlanList(planList2);
           renderPlanList2(planList2);
           break;
         case "planGenerated":
-          currentPlanData2 = msg.plan || null;
+          currentPlanData2 = msg2.plan || null;
           setCurrentPlanData(currentPlanData2);
           renderPlanSummary2(currentPlanData2);
           const saveBtn = document.getElementById("savePlanBtn");
@@ -9391,7 +11212,7 @@
           shipSetStatus2("Plan generated.");
           break;
         case "planLoaded":
-          currentPlanData2 = msg.plan || null;
+          currentPlanData2 = msg2.plan || null;
           setCurrentPlanData(currentPlanData2);
           renderPlanSummary2(currentPlanData2);
           const saveBtn2 = document.getElementById("savePlanBtn");
@@ -9404,16 +11225,16 @@
           shipSetStatus2(currentPlanData2 ? "Plan loaded." : "Plan not found.");
           break;
         case "planSaved":
-          currentPlanData2 = msg.plan || currentPlanData2;
+          currentPlanData2 = msg2.plan || currentPlanData2;
           setCurrentPlanData(currentPlanData2);
           renderPlanSummary2(currentPlanData2);
           shipSetStatus2("Plan saved.");
           break;
         case "planError":
-          shipSetStatus2(msg.error || "Plan error.");
+          shipSetStatus2(msg2.error || "Plan error.");
           break;
         case "ticketList":
-          ticketList2 = Array.isArray(msg.tickets) ? msg.tickets : [];
+          ticketList2 = Array.isArray(msg2.tickets) ? msg2.tickets : [];
           setTicketList(ticketList2);
           renderTicketList2(ticketList2);
           renderTicketsListMain2(ticketList2);
@@ -9422,39 +11243,39 @@
         case "ticketUpdated":
           break;
         case "ticketError":
-          shipSetStatus2(msg.error || "Ticket error.");
+          shipSetStatus2(msg2.error || "Ticket error.");
           break;
         case "ticketRouted": {
           const agentNames = { nova: "Nova", gears: "Gears", index: "Index", triage: "Triage", vault: "Vault", palette: "Palette" };
-          const name = agentNames[msg.assignedTo] || msg.assignedTo;
-          showToast2("Ticket routed to " + name + " (" + msg.ticketType + ")", "success");
+          const name = agentNames[msg2.assignedTo] || msg2.assignedTo;
+          showToast2("Ticket routed to " + name + " (" + msg2.ticketType + ")", "success");
           shipSetStatus2("Ticket assigned to " + name);
           break;
         }
         case "ticketRouting": {
-          console.log("[SpaceCode] Ticket routing policy:", msg.routing);
+          console.log("[SpaceCode] Ticket routing policy:", msg2.routing);
           break;
         }
         case "handoffCreated": {
-          if (msg.handoff) {
-            showToast2("Handoff sent to " + (msg.handoff.toPersona || "?"), "success");
-            shipSetStatus2("Context sent to " + (msg.handoff.toPersona || "?"));
+          if (msg2.handoff) {
+            showToast2("Handoff sent to " + (msg2.handoff.toPersona || "?"), "success");
+            shipSetStatus2("Context sent to " + (msg2.handoff.toPersona || "?"));
           }
           break;
         }
         case "handoffNotification": {
-          if (msg.handoff && msg.personaName) {
-            showToast2("Incoming context from " + (msg.handoff.fromPersona || "?") + " for " + msg.personaName, "info");
+          if (msg2.handoff && msg2.personaName) {
+            showToast2("Incoming context from " + (msg2.handoff.fromPersona || "?") + " for " + msg2.personaName, "info");
           }
           break;
         }
         case "handoffList": {
-          console.log("[SpaceCode] Handoffs:", msg.handoffs);
+          console.log("[SpaceCode] Handoffs:", msg2.handoffs);
           break;
         }
         case "handoffReceived": {
-          if (msg.handoff) {
-            addMessage2("system", "Context received from " + (msg.handoff.fromPersona || "?") + ": " + (msg.handoff.summary || ""));
+          if (msg2.handoff) {
+            addMessage2("system", "Context received from " + (msg2.handoff.fromPersona || "?") + ": " + (msg2.handoff.summary || ""));
           }
           break;
         }
@@ -9463,31 +11284,31 @@
           break;
         }
         case "autosolveNotification": {
-          if (msg.result) {
-            showToast2("Autosolve completed: " + (msg.result.title || "task"), "success");
-            shipSetStatus2("Autosolve: " + (msg.result.title || "task completed"));
+          if (msg2.result) {
+            showToast2("Autosolve completed: " + (msg2.result.title || "task"), "success");
+            shipSetStatus2("Autosolve: " + (msg2.result.title || "task completed"));
             const badge = document.getElementById("autosolveBadge");
             if (badge) {
-              badge.textContent = String(msg.pendingCount || 0);
-              badge.style.display = msg.pendingCount > 0 ? "inline-flex" : "none";
+              badge.textContent = String(msg2.pendingCount || 0);
+              badge.style.display = msg2.pendingCount > 0 ? "inline-flex" : "none";
             }
           }
           break;
         }
         case "autosolveCreated": {
-          if (msg.result) {
-            showToast2("Autosolve result queued: " + (msg.result.title || ""), "info");
+          if (msg2.result) {
+            showToast2("Autosolve result queued: " + (msg2.result.title || ""), "info");
           }
           break;
         }
         case "autosolveList": {
           const listEl = document.getElementById("autosolveList");
-          if (listEl && Array.isArray(msg.results)) {
+          if (listEl && Array.isArray(msg2.results)) {
             listEl.innerHTML = "";
-            if (msg.results.length === 0) {
+            if (msg2.results.length === 0) {
               listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:11px;">No autosolve results.</div>';
             } else {
-              msg.results.forEach((r) => {
+              msg2.results.forEach((r) => {
                 const item = document.createElement("div");
                 item.className = "autosolve-item" + (r.status === "pending" ? " pending" : "");
                 const statusColor = r.status === "pending" ? "#f59e0b" : r.status === "accepted" ? "#10b981" : "#9aa3b2";
@@ -9504,8 +11325,8 @@
           }
           const asolveBadge = document.getElementById("autosolveBadge");
           if (asolveBadge) {
-            asolveBadge.textContent = String(msg.pendingCount || 0);
-            asolveBadge.style.display = msg.pendingCount > 0 ? "inline-flex" : "none";
+            asolveBadge.textContent = String(msg2.pendingCount || 0);
+            asolveBadge.style.display = msg2.pendingCount > 0 ? "inline-flex" : "none";
           }
           break;
         }
@@ -9514,24 +11335,24 @@
         case "autosolveDismissed":
         case "autosolveSentToIndex": {
           vscode2.postMessage({ type: "autosolveList" });
-          if (msg.type === "autosolveSentToIndex") {
+          if (msg2.type === "autosolveSentToIndex") {
             showToast2("Changes sent to Index for documentation", "success");
           }
           break;
         }
         case "skillsList":
-          renderSkillsList2(Array.isArray(msg.skills) ? msg.skills : []);
+          renderSkillsList2(Array.isArray(msg2.skills) ? msg2.skills : []);
           break;
         case "skillCreated":
         case "skillUpdated":
           break;
         case "skillError":
-          shipSetStatus2(msg.error || "Skill error.");
+          shipSetStatus2(msg2.error || "Skill error.");
           break;
         case "agentList": {
           const agentListEl = document.getElementById("agentStatusList");
-          if (agentListEl && Array.isArray(msg.agents)) {
-            agentListEl.innerHTML = msg.agents.map((a) => {
+          if (agentListEl && Array.isArray(msg2.agents)) {
+            agentListEl.innerHTML = msg2.agents.map((a) => {
               const statusColors = { active: "#10b981", working: "#f59e0b", idle: "#666" };
               const sc = statusColors[a.status] || "#666";
               return `<div class="agent-status-card" onclick="viewAgentDetails('` + a.id + `')" style="cursor:pointer;"><div style="display:flex;align-items:center;gap:8px;"><span class="persona-dot" style="background:` + (a.color || "#888") + ';width:10px;height:10px;"></span><strong style="font-size:12px;">' + (a.name || a.id) + '</strong><span style="font-size:10px;color:var(--text-secondary);">' + (a.title || "") + '</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:10px;color:' + sc + ';">' + (a.status || "idle").toUpperCase() + "</span></div></div>";
@@ -9541,9 +11362,9 @@
         }
         case "agentDetails": {
           const detailEl = document.getElementById("agentDetailsPanel");
-          if (detailEl && msg.agent) {
-            const a = msg.agent;
-            const skillsHtml = Array.isArray(msg.skills) ? msg.skills.map(
+          if (detailEl && msg2.agent) {
+            const a = msg2.agent;
+            const skillsHtml = Array.isArray(msg2.skills) ? msg2.skills.map(
               (s) => '<span style="display:inline-block;padding:2px 8px;background:var(--bg-hover);border-radius:12px;font-size:10px;margin:2px;">' + (s.command ? s.command + " " : "") + s.name + "</span>"
             ).join("") : "";
             detailEl.innerHTML = '<div style="padding:10px;"><h4 style="color:' + (a.color || "#888") + ';margin-bottom:4px;">' + a.name + " \u2014 " + a.title + '</h4><p style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">' + (a.description || "") + '</p><div style="margin-bottom:6px;"><strong style="font-size:11px;">Specialties:</strong></div>' + (Array.isArray(a.specialties) ? '<div style="margin-bottom:8px;">' + a.specialties.map(
@@ -9554,11 +11375,11 @@
           break;
         }
         case "skillList": {
-          renderSkillsList2(Array.isArray(msg.skills) ? msg.skills : []);
+          renderSkillsList2(Array.isArray(msg2.skills) ? msg2.skills : []);
           const skillCatalogEl = document.getElementById("skillCatalog");
-          if (skillCatalogEl && Array.isArray(msg.skills)) {
+          if (skillCatalogEl && Array.isArray(msg2.skills)) {
             const categories = {};
-            msg.skills.forEach((s) => {
+            msg2.skills.forEach((s) => {
               const cat = s.category || "other";
               if (!categories[cat])
                 categories[cat] = [];
@@ -9576,19 +11397,19 @@
           break;
         }
         case "skillTriggered": {
-          if (msg.skill) {
-            showToast2("Skill triggered: " + msg.skill.name, "info");
+          if (msg2.skill) {
+            showToast2("Skill triggered: " + msg2.skill.name, "info");
           }
           break;
         }
         case "dashboardMetrics":
-          updateDashboardMetrics2(msg.metrics || {});
+          updateDashboardMetrics2(msg2.metrics || {});
           break;
         case "recentActivity":
-          renderActivityList2(Array.isArray(msg.activities) ? msg.activities : []);
+          renderActivityList2(Array.isArray(msg2.activities) ? msg2.activities : []);
           break;
         case "docsStats":
-          updateDocsPanel2(msg.stats);
+          updateDocsPanel2(msg2.stats);
           break;
         case "securityScanStarted": {
           const scanBtn = document.getElementById("securityScanBtn");
@@ -9611,7 +11432,7 @@
           const exportBtn = document.getElementById("securityExportBtn");
           if (exportBtn)
             exportBtn.disabled = false;
-          const r = msg.result;
+          const r = msg2.result;
           if (!r)
             break;
           const scoreCard = document.getElementById("securityScoreCard");
@@ -9666,19 +11487,19 @@
             scanBtn.disabled = false;
             scanBtn.textContent = "Scan";
           }
-          shipSetStatus2("Security scan error: " + (msg.error || "Unknown"));
+          shipSetStatus2("Security scan error: " + (msg2.error || "Unknown"));
           break;
         }
         case "securityExportResult": {
-          if (msg.markdown) {
-            addMessage2("system", "Security Report:\\n" + msg.markdown);
+          if (msg2.markdown) {
+            addMessage2("system", "Security Report:\\n" + msg2.markdown);
           }
           shipSetStatus2("Security report exported.");
           break;
         }
         case "securityFixHandoff": {
-          if (msg.handoff) {
-            addMessage2("system", "Fix handoff created for: " + (msg.handoff.finding?.title || "security issue"));
+          if (msg2.handoff) {
+            addMessage2("system", "Fix handoff created for: " + (msg2.handoff.finding?.title || "security issue"));
           }
           break;
         }
@@ -9703,7 +11524,7 @@
           const exportBtn = document.getElementById("qualityExportBtn");
           if (exportBtn)
             exportBtn.disabled = false;
-          const q = msg.result;
+          const q = msg2.result;
           if (!q)
             break;
           const scoreCard = document.getElementById("qualityScoreCard");
@@ -9771,12 +11592,12 @@
             scanBtn.disabled = false;
             scanBtn.textContent = "Scan";
           }
-          shipSetStatus2("Quality scan error: " + (msg.error || "Unknown"));
+          shipSetStatus2("Quality scan error: " + (msg2.error || "Unknown"));
           break;
         }
         case "qualityExportResult": {
-          if (msg.markdown) {
-            addMessage2("system", "Code Quality Report:\\n" + msg.markdown);
+          if (msg2.markdown) {
+            addMessage2("system", "Code Quality Report:\\n" + msg2.markdown);
           }
           shipSetStatus2("Quality report exported.");
           break;
@@ -9786,13 +11607,13 @@
           const btnComplex = document.getElementById("complexityBtnComplex");
           const hint = document.getElementById("complexityHint");
           if (btnSimple)
-            btnSimple.classList.toggle("active", msg.complexity === "simple");
+            btnSimple.classList.toggle("active", msg2.complexity === "simple");
           if (btnComplex)
-            btnComplex.classList.toggle("active", msg.complexity === "complex");
+            btnComplex.classList.toggle("active", msg2.complexity === "complex");
           if (hint) {
-            if (msg.complexity === "simple") {
+            if (msg2.complexity === "simple") {
               hint.textContent = "No required docs";
-            } else if (msg.complexity === "complex") {
+            } else if (msg2.complexity === "complex") {
               hint.textContent = "Requires GDD + SA";
             } else {
               hint.textContent = "Choose project type";
@@ -9801,21 +11622,21 @@
           break;
         }
         case "docsBlockState": {
-          if (msg.isBlocked) {
-            shipSetStatus2("Docs required: " + (msg.missingDocs || []).join(", "));
+          if (msg2.isBlocked) {
+            shipSetStatus2("Docs required: " + (msg2.missingDocs || []).join(", "));
           }
           break;
         }
         case "docsWizardState": {
           const wizSec = document.getElementById("docsWizardSection");
-          if (!msg.state) {
+          if (!msg2.state) {
             if (wizSec)
               wizSec.style.display = "none";
             break;
           }
           if (wizSec)
             wizSec.style.display = "block";
-          const s = msg.state;
+          const s = msg2.state;
           const step = s.steps[s.currentStep];
           const titleEl = document.getElementById("docsWizardTitle");
           const descEl = document.getElementById("docsWizardDesc");
@@ -9877,9 +11698,9 @@
         }
         case "docsQuestionnaire": {
           const contentEl = document.getElementById("docsWizardContent");
-          if (!contentEl || !Array.isArray(msg.questions))
+          if (!contentEl || !Array.isArray(msg2.questions))
             break;
-          contentEl.innerHTML = msg.questions.map((q) => {
+          contentEl.innerHTML = msg2.questions.map((q) => {
             const tag = q.multiline ? "textarea" : "input";
             const reqMark = q.required ? '<span class="required">*</span>' : "";
             return `<div class="wizard-question">
@@ -9887,17 +11708,17 @@
               <${tag} data-qid="${q.id}" placeholder="${escapeHtml2(q.placeholder || "")}" class="wiz-answer" ${tag === "input" ? 'type="text"' : ""}></${tag}>
             </div>`;
           }).join("");
-          contentEl.dataset.docType = msg.docType;
+          contentEl.dataset.docType = msg2.docType;
           break;
         }
         case "docsWizardComplete": {
           const wizSec = document.getElementById("docsWizardSection");
           if (wizSec)
             wizSec.style.display = "none";
-          if (Array.isArray(msg.results)) {
-            const created = msg.results.filter((r) => r.status === "created").length;
-            const updated = msg.results.filter((r) => r.status === "updated").length;
-            const errors = msg.results.filter((r) => r.status === "error").length;
+          if (Array.isArray(msg2.results)) {
+            const created = msg2.results.filter((r) => r.status === "created").length;
+            const updated = msg2.results.filter((r) => r.status === "updated").length;
+            const errors = msg2.results.filter((r) => r.status === "error").length;
             showToast2(`Docs generated: ${created} created, ${updated} updated${errors ? ", " + errors + " errors" : ""}`, errors ? "warning" : "success");
           }
           deps.vscode.postMessage({ type: "docsGetSummary" });
@@ -9907,7 +11728,7 @@
           const bar = document.getElementById("docsSummaryBar");
           if (bar)
             bar.style.display = "block";
-          const ids = { docsSummaryTotal: msg.total, docsSummaryCurrent: msg.current, docsSummaryDraft: msg.draft, docsSummaryMissing: msg.missing };
+          const ids = { docsSummaryTotal: msg2.total, docsSummaryCurrent: msg2.current, docsSummaryDraft: msg2.draft, docsSummaryMissing: msg2.missing };
           Object.entries(ids).forEach(([id, val]) => {
             const el = document.getElementById(id);
             if (el)
@@ -9915,13 +11736,13 @@
           });
           const healthEl = document.getElementById("docsSummaryHealth");
           if (healthEl) {
-            healthEl.textContent = (msg.healthScore || 0) + "%";
-            healthEl.style.color = msg.healthScore >= 80 ? "var(--success-color)" : msg.healthScore >= 50 ? "var(--warning-color)" : "var(--error-color)";
+            healthEl.textContent = (msg2.healthScore || 0) + "%";
+            healthEl.style.color = msg2.healthScore >= 80 ? "var(--success-color)" : msg2.healthScore >= 50 ? "var(--warning-color)" : "var(--error-color)";
           }
           break;
         }
         case "docsScanResult": {
-          showToast2(`Scan complete: ${(msg.documents || []).length} docs, health ${msg.healthScore || 0}%`, "success");
+          showToast2(`Scan complete: ${(msg2.documents || []).length} docs, health ${msg2.healthScore || 0}%`, "success");
           deps.vscode.postMessage({ type: "docsGetSummary" });
           break;
         }
@@ -9930,12 +11751,12 @@
           const list = document.getElementById("docsDriftList");
           if (!banner || !list)
             break;
-          if (!msg.driftDocs || msg.driftDocs.length === 0) {
+          if (!msg2.driftDocs || msg2.driftDocs.length === 0) {
             banner.style.display = "none";
             break;
           }
           banner.style.display = "block";
-          list.innerHTML = msg.driftDocs.map(
+          list.innerHTML = msg2.driftDocs.map(
             (d) => `<div onclick="window._openDriftDoc('${d.type}')">
               \u26A0 ${escapeHtml2(d.name)} \u2014 ${d.daysSinceUpdate} days since update (${escapeHtml2(d.path)})
             </div>`
@@ -9943,11 +11764,11 @@
           break;
         }
         case "dbStats":
-          updateDbPanel2(msg.stats);
+          updateDbPanel2(msg2.stats);
           break;
         case "missionData": {
-          if (msg.mission) {
-            const m = msg.mission;
+          if (msg2.mission) {
+            const m = msg2.mission;
             const gEl = (id) => document.getElementById(id);
             if (gEl("missionOpenTickets"))
               gEl("missionOpenTickets").textContent = String(m.openTickets || 0);
@@ -9981,7 +11802,7 @@
           break;
         }
         case "milestoneCreated": {
-          showToast2("Milestone created: " + (msg.milestone?.title || ""), "success");
+          showToast2("Milestone created: " + (msg2.milestone?.title || ""), "success");
           vscode2.postMessage({ type: "getMissionData" });
           break;
         }
@@ -9990,8 +11811,8 @@
           break;
         }
         case "storageStats": {
-          if (msg.storage) {
-            const s = msg.storage;
+          if (msg2.storage) {
+            const s = msg2.storage;
             const sEl = (id) => document.getElementById(id);
             if (sEl("storageType"))
               sEl("storageType").textContent = s.type || "globalState";
@@ -10029,7 +11850,7 @@
           const browser = document.getElementById("storageDbBrowser");
           if (!browser)
             break;
-          const messages = msg.messages || [];
+          const messages = msg2.messages || [];
           if (messages.length === 0) {
             browser.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:8px;">No messages in database. Send a chat message first.</div>';
             break;
@@ -10073,24 +11894,24 @@
           break;
         }
         case "storageClearResult": {
-          if (msg.success) {
-            showToast2("Cleared: " + (msg.target || "storage"), "success");
+          if (msg2.success) {
+            showToast2("Cleared: " + (msg2.target || "storage"), "success");
             vscode2.postMessage({ type: "getStorageStats" });
           } else {
-            showToast2("Clear failed: " + (msg.error || "unknown"), "error");
+            showToast2("Clear failed: " + (msg2.error || "unknown"), "error");
           }
           break;
         }
         case "storageExportResult": {
-          if (msg.data) {
+          if (msg2.data) {
             showToast2("Storage data exported to console", "success");
-            console.log("[SpaceCode] Export:", msg.data);
+            console.log("[SpaceCode] Export:", msg2.data);
           }
           break;
         }
         case "artStudioData": {
-          if (msg.artData) {
-            const ad = msg.artData;
+          if (msg2.artData) {
+            const ad = msg2.artData;
             const palette = document.getElementById("artColorPalette");
             if (palette && Array.isArray(ad.colors) && ad.colors.length > 0) {
               palette.innerHTML = ad.colors.map(
@@ -10111,21 +11932,21 @@
           break;
         }
         case "artGenerationResult": {
-          if (msg.status === "not_configured") {
-            showToast2(msg.message || "API not configured", "info");
+          if (msg2.status === "not_configured") {
+            showToast2(msg2.message || "API not configured", "info");
           } else {
             showToast2("Image generated", "success");
           }
           break;
         }
         case "artGenerationError": {
-          showToast2("Generation failed: " + (msg.error || ""), "error");
+          showToast2("Generation failed: " + (msg2.error || ""), "error");
           break;
         }
         case "explorerContext": {
           const ctxEl = document.getElementById("explorerContextBar");
-          if (ctxEl && msg.context) {
-            const c = msg.context;
+          if (ctxEl && msg2.context) {
+            const c = msg2.context;
             ctxEl.style.display = "flex";
             ctxEl.innerHTML = '<span style="font-size:10px;color:var(--text-secondary);">File:</span> <strong style="font-size:11px;">' + (c.fileName || "") + '</strong><span style="font-size:10px;color:var(--text-secondary);margin-left:6px;">' + (c.language || "") + '</span><span style="font-size:10px;color:var(--text-secondary);margin-left:6px;">L' + (c.lineNumber || 0) + "</span>" + (c.sector !== "general" ? '<span style="font-size:9px;background:var(--accent-bg);color:var(--accent-color);padding:1px 6px;border-radius:8px;margin-left:6px;">' + c.sector + "</span>" : "") + (c.selection ? '<span style="font-size:10px;color:var(--accent-color);margin-left:6px;">[selection]</span>' : "");
           } else if (ctxEl) {
@@ -10138,36 +11959,36 @@
           break;
         }
         case "logs":
-          updateLogsPanel2(msg.logs, msg.channel);
+          updateLogsPanel2(msg2.logs, msg2.channel);
           break;
         case "settingsSaved":
-          if (msg.success) {
+          if (msg2.success) {
             showToast2("Settings saved successfully", "success");
           } else {
-            showToast2("Failed to save settings: " + (msg.error || "Unknown error"), "error");
+            showToast2("Failed to save settings: " + (msg2.error || "Unknown error"), "error");
           }
           break;
         case "settingsFilePath": {
           const pathEl = document.getElementById("settingsFilePath");
-          if (pathEl && msg.relativePath) {
-            pathEl.textContent = msg.relativePath;
-            pathEl.title = msg.path || "Click to open in editor";
+          if (pathEl && msg2.relativePath) {
+            pathEl.textContent = msg2.relativePath;
+            pathEl.title = msg2.path || "Click to open in editor";
           }
           break;
         }
         case "toolbarSettings":
           if (handleToolbarSettings2) {
-            handleToolbarSettings2(msg.settings);
+            handleToolbarSettings2(msg2.settings);
           }
-          if (mergePricing2 && msg.settings?.pricing) {
-            mergePricing2(msg.settings.pricing);
+          if (mergePricing2 && msg2.settings?.pricing) {
+            mergePricing2(msg2.settings.pricing);
           }
           break;
         case "modelVerificationStarted":
           break;
         case "modelVerificationResults":
           if (window.handleModelVerificationResults) {
-            window.handleModelVerificationResults(msg.results);
+            window.handleModelVerificationResults(msg2.results);
           }
           break;
         case "modelVerificationError": {
@@ -10177,30 +11998,30 @@
             btn.innerHTML = '<span class="btn-icon">\u{1F50D}</span> Verify All';
           if (status) {
             status.className = "verification-status error";
-            status.innerHTML = `<span class="status-text">Verification failed: ${msg.error}</span>`;
+            status.innerHTML = `<span class="status-text">Verification failed: ${msg2.error}</span>`;
           }
           break;
         }
         case "singleModelVerificationResult": {
-          const el = document.getElementById(`verify-${msg.result?.modelId}`);
-          if (el && msg.result) {
-            if (msg.result.status === "valid") {
+          const el = document.getElementById(`verify-${msg2.result?.modelId}`);
+          if (el && msg2.result) {
+            if (msg2.result.status === "valid") {
               el.textContent = "\u2713";
               el.className = "verify-status valid";
-            } else if (msg.result.status === "invalid") {
+            } else if (msg2.result.status === "invalid") {
               el.textContent = "\u2717";
               el.className = "verify-status invalid";
             } else {
               el.textContent = "?";
               el.className = "verify-status";
             }
-            el.title = msg.result.message;
+            el.title = msg2.result.message;
           }
           break;
         }
         case "lastModelVerification":
-          if (msg.results && window.handleModelVerificationResults) {
-            window.handleModelVerificationResults(msg.results);
+          if (msg2.results && window.handleModelVerificationResults) {
+            window.handleModelVerificationResults(msg2.results);
           }
           break;
         case "openaiModelsList": {
@@ -10208,7 +12029,7 @@
           const text = document.getElementById("openaiModelsText");
           if (list && text) {
             list.style.display = "block";
-            const models = Array.isArray(msg.models) ? msg.models : [];
+            const models = Array.isArray(msg2.models) ? msg2.models : [];
             text.textContent = models.length ? models.join("\n") : "No models returned.";
           }
           break;
@@ -10218,35 +12039,35 @@
           const text = document.getElementById("openaiModelsText");
           if (list && text) {
             list.style.display = "block";
-            text.textContent = `Error fetching models: ${msg.error || "Unknown error"}`;
+            text.textContent = `Error fetching models: ${msg2.error || "Unknown error"}`;
           }
           break;
         }
         case "modelOverrides": {
           const out = document.getElementById("devPricingOverrides");
           if (out) {
-            out.textContent = JSON.stringify(msg.overrides || {}, null, 2);
+            out.textContent = JSON.stringify(msg2.overrides || {}, null, 2);
           }
           break;
         }
         case "modelOverrideApplied": {
           const status = document.getElementById("devPricingStatus");
           if (status) {
-            status.textContent = `Applied override for ${msg.modelId}`;
+            status.textContent = `Applied override for ${msg2.modelId}`;
           }
           break;
         }
         case "modelOverrideError": {
           const status = document.getElementById("devPricingStatus");
           if (status) {
-            status.textContent = `Override error: ${msg.error || "Unknown error"}`;
+            status.textContent = `Override error: ${msg2.error || "Unknown error"}`;
           }
           break;
         }
         case "planExecutionStarted":
           planExecutionState = {
-            planId: msg.planId || null,
-            totalSteps: msg.totalSteps || 0,
+            planId: msg2.planId || null,
+            totalSteps: msg2.totalSteps || 0,
             completedSteps: 0,
             failedSteps: 0
           };
@@ -10254,35 +12075,35 @@
           showPlanExecutionPanel2(true);
           hidePlanStepGate2();
           clearPlanExecutionLog2();
-          setPlanExecutionStatus2("Executing: " + (msg.planTitle || "Plan"));
+          setPlanExecutionStatus2("Executing: " + (msg2.planTitle || "Plan"));
           setPlanExecutionProgress2("0 / " + planExecutionState.totalSteps + " steps");
-          appendPlanExecutionLog2("Started plan: " + (msg.planTitle || msg.planId || "unknown"));
+          appendPlanExecutionLog2("Started plan: " + (msg2.planTitle || msg2.planId || "unknown"));
           setPlanExecutionButtonsEnabled2(false);
           break;
         case "planStepStarted":
-          if (msg.stepDescription) {
-            setPlanExecutionStatus2("Running: " + msg.stepDescription);
-            appendPlanExecutionLog2("\u25B6 " + msg.stepDescription);
+          if (msg2.stepDescription) {
+            setPlanExecutionStatus2("Running: " + msg2.stepDescription);
+            appendPlanExecutionLog2("\u25B6 " + msg2.stepDescription);
           }
           break;
         case "planStepPending":
           showPlanExecutionPanel2(true);
-          showPlanStepGate(msg);
+          showPlanStepGate(msg2);
           setPlanExecutionStatus2("Awaiting approval");
           setPlanExecutionProgress2(
             planExecutionState.completedSteps + " / " + planExecutionState.totalSteps + " steps (failed: " + planExecutionState.failedSteps + ")"
           );
-          if (msg.stepDescription) {
-            appendPlanExecutionLog2("\u23F8 Waiting: " + msg.stepDescription);
+          if (msg2.stepDescription) {
+            appendPlanExecutionLog2("\u23F8 Waiting: " + msg2.stepDescription);
           }
           break;
         case "planStepCompleted":
-          if (msg.success) {
+          if (msg2.success) {
             planExecutionState.completedSteps += 1;
             appendPlanExecutionLog2("\u2705 Step completed");
           } else {
             planExecutionState.failedSteps += 1;
-            appendPlanExecutionLog2("\u274C Step failed: " + (msg.error || "Unknown error"));
+            appendPlanExecutionLog2("\u274C Step failed: " + (msg2.error || "Unknown error"));
           }
           setPlanExecutionState2(planExecutionState);
           setPlanExecutionProgress2(
@@ -10290,64 +12111,64 @@
           );
           break;
         case "planPhaseCompleted":
-          if (msg.summary) {
-            appendPlanExecutionLog2("\u2022 Phase summary: " + msg.summary);
-          } else if (msg.phaseId) {
-            appendPlanExecutionLog2("\u2022 Phase completed: " + msg.phaseId);
+          if (msg2.summary) {
+            appendPlanExecutionLog2("\u2022 Phase summary: " + msg2.summary);
+          } else if (msg2.phaseId) {
+            appendPlanExecutionLog2("\u2022 Phase completed: " + msg2.phaseId);
           }
           break;
         case "executionOutput":
-          if (msg.chunk) {
-            appendPlanExecutionLog2(msg.chunk);
+          if (msg2.chunk) {
+            appendPlanExecutionLog2(msg2.chunk);
           }
           break;
         case "planExecutionCompleted":
-          setPlanExecutionStatus2(msg.success ? "Execution complete" : "Execution completed with errors", !msg.success);
-          if (msg.summary) {
-            appendPlanExecutionLog2("Summary: " + msg.summary);
+          setPlanExecutionStatus2(msg2.success ? "Execution complete" : "Execution completed with errors", !msg2.success);
+          if (msg2.summary) {
+            appendPlanExecutionLog2("Summary: " + msg2.summary);
           }
           setPlanExecutionProgress2(
-            (msg.completedSteps ?? planExecutionState.completedSteps) + " / " + (planExecutionState.totalSteps || msg.completedSteps || 0) + " steps (failed: " + (msg.failedSteps ?? planExecutionState.failedSteps) + ")"
+            (msg2.completedSteps ?? planExecutionState.completedSteps) + " / " + (planExecutionState.totalSteps || msg2.completedSteps || 0) + " steps (failed: " + (msg2.failedSteps ?? planExecutionState.failedSteps) + ")"
           );
           hidePlanStepGate2();
           setPlanExecutionButtonsEnabled2(!!currentPlanData2);
           break;
         case "planExecutionError":
           setPlanExecutionStatus2("Execution error", true);
-          appendPlanExecutionLog2("Error: " + (msg.error || "Unknown error"));
+          appendPlanExecutionLog2("Error: " + (msg2.error || "Unknown error"));
           hidePlanStepGate2();
           setPlanExecutionButtonsEnabled2(!!currentPlanData2);
           break;
         case "aiReviewResult":
-          updateAIReview2(msg.result || null);
+          updateAIReview2(msg2.result || null);
           break;
         case "workflows":
-          setWorkflows2(msg.workflows || []);
+          setWorkflows2(msg2.workflows || []);
           break;
         case "workflowResult":
-          document.getElementById("workflowOutputContent").innerHTML = '<pre style="white-space: pre-wrap;">' + escapeHtml2(msg.result) + "</pre>";
+          document.getElementById("workflowOutputContent").innerHTML = '<pre style="white-space: pre-wrap;">' + escapeHtml2(msg2.result) + "</pre>";
           break;
         case "workflowError":
-          document.getElementById("workflowOutputContent").innerHTML = '<p style="color: var(--error-text);">Error: ' + escapeHtml2(msg.error) + "</p>";
+          document.getElementById("workflowOutputContent").innerHTML = '<p style="color: var(--error-text);">Error: ' + escapeHtml2(msg2.error) + "</p>";
           break;
         case "workflowEvent":
-          handleWorkflowEvent2(msg.event);
+          handleWorkflowEvent2(msg2.event);
           break;
         case "insertPrompt":
-          if (msg.prompt) {
+          if (msg2.prompt) {
             const input = document.getElementById("messageInput");
             if (input) {
-              input.value = msg.prompt;
+              input.value = msg2.prompt;
               input.focus();
               autoResize2(input);
             }
           }
           break;
         case "sendGitPrompt":
-          if (msg.prompt) {
+          if (msg2.prompt) {
             const input = document.getElementById("messageInput");
             if (input) {
-              input.value = msg.prompt;
+              input.value = msg2.prompt;
               autoResize2(input);
               setTimeout(() => sendMessage2(), 50);
             }
@@ -10356,11 +12177,209 @@
         case "gitSettingsSaved":
           break;
         case "gitSettings":
-          loadGitSettings2(msg.settings);
+          loadGitSettings2(msg2.settings);
+          break;
+        case "autopilotStatus": {
+          if (typeof autopilotRenderStatus2 === "function") {
+            autopilotRenderStatus2(msg2);
+          }
+          break;
+        }
+        case "autopilotStepResult": {
+          if (typeof autopilotRenderStepResult2 === "function") {
+            autopilotRenderStepResult2(msg2.result || msg2);
+          }
+          break;
+        }
+        case "autopilotInterruptedSession": {
+          if (typeof autopilotRenderSessionPrompt2 === "function") {
+            autopilotRenderSessionPrompt2(msg2);
+          }
+          break;
+        }
+        case "autopilotConfig": {
+          if (typeof autopilotRenderConfig2 === "function") {
+            autopilotRenderConfig2(msg2.config || msg2);
+          }
+          break;
+        }
+        case "autopilotError": {
+          if (typeof autopilotRenderStatus2 === "function") {
+            autopilotRenderStatus2({ status: "failed", error: msg2.error || msg2.message });
+          }
+          break;
+        }
+        case "gameuiState":
+        case "gameuiStateLoaded": {
+          if (typeof gameuiRenderState2 === "function") {
+            gameuiRenderState2(msg2);
+          }
+          break;
+        }
+        case "gameuiCatalog": {
+          if (typeof gameuiRenderCatalog2 === "function") {
+            gameuiRenderCatalog2(msg2);
+          }
+          break;
+        }
+        case "gameuiPipelineEvent": {
+          if (typeof gameuiRenderEvent2 === "function") {
+            gameuiRenderEvent2(msg2.event || msg2);
+          }
+          break;
+        }
+        case "gameuiThemes": {
+          if (typeof gameuiRenderThemes2 === "function") {
+            gameuiRenderThemes2(msg2);
+          }
+          break;
+        }
+        case "gameuiComponentResult":
+        case "gameuiComponentUpdated": {
+          if (typeof gameuiRenderState2 === "function" && msg2.summary) {
+            gameuiRenderState2(msg2);
+          }
+          break;
+        }
+        case "gameuiPhaseResult":
+        case "gameuiPipelineComplete": {
+          if (typeof gameuiRenderState2 === "function" && msg2.summary) {
+            gameuiRenderState2({ state: null, summary: msg2.summary });
+          }
+          break;
+        }
+        case "dbState":
+        case "dbActiveChanged": {
+          if (typeof dbRenderConnectionList2 === "function") {
+            dbRenderConnectionList2(msg2);
+          }
+          break;
+        }
+        case "dbConnectionAdded":
+        case "dbConnectionRemoved": {
+          if (typeof dbRenderConnectionList2 === "function") {
+            dbRenderConnectionList2(msg2);
+          }
+          break;
+        }
+        case "dbConnectionTested": {
+          if (typeof dbRenderTestResult2 === "function") {
+            dbRenderTestResult2(msg2);
+          }
+          break;
+        }
+        case "dbSchema": {
+          if (typeof dbRenderSchema2 === "function") {
+            dbRenderSchema2(msg2);
+          }
+          break;
+        }
+        case "dbQueryResult": {
+          if (typeof dbRenderQueryResult2 === "function") {
+            dbRenderQueryResult2(msg2);
+          }
+          break;
+        }
+        case "memorySearchResults": {
+          if (typeof chatSearchRenderResults2 === "function") {
+            chatSearchRenderResults2(msg2);
+          }
+          break;
+        }
+        case "buildResult": {
+          const buildEl = document.getElementById("buildStatusIndicator");
+          if (buildEl) {
+            if (msg2.success) {
+              buildEl.textContent = "\u2713 Build OK";
+              buildEl.style.color = "#10b981";
+            } else {
+              buildEl.textContent = "\u2717 " + (msg2.errorCount || 0) + " error(s)";
+              buildEl.style.color = "#ef4444";
+            }
+          }
+          if (msg2.success) {
+            shipSetStatus2("Unity build: No compile errors");
+          } else {
+            shipSetStatus2("Unity build failed: " + (msg2.errorCount || 0) + " compile error(s)");
+            showToast2("Build failed: " + (msg2.errorCount || 0) + " error(s)", "error");
+          }
+          break;
+        }
+        case "commsState":
+          if (typeof commsRenderState2 === "function")
+            commsRenderState2(msg2);
+          break;
+        case "commsServicesChecked":
+          if (typeof commsRenderState2 === "function") {
+            vscode2.postMessage({ type: "commsGetState" });
+          }
+          break;
+        case "commsScanStarted":
+          if (typeof commsRenderScanStarted2 === "function")
+            commsRenderScanStarted2(msg2);
+          break;
+        case "commsScanCompleted":
+          if (typeof commsRenderScanCompleted2 === "function")
+            commsRenderScanCompleted2(msg2);
+          break;
+        case "commsScanDetail":
+          if (typeof commsRenderScanDetail2 === "function")
+            commsRenderScanDetail2(msg2);
+          break;
+        case "commsRecentScans":
+          break;
+        case "commsPrompt":
+          if (typeof commsRenderPrompt2 === "function")
+            commsRenderPrompt2(msg2);
+          break;
+        case "commsError":
+          if (msg2.error) {
+            const commsStatusEl = document.getElementById("commsScanStatus");
+            if (commsStatusEl) {
+              commsStatusEl.textContent = msg2.error;
+              commsStatusEl.style.color = "#ef4444";
+            }
+            showToast2(msg2.error, "error");
+          }
+          break;
+        case "opsState":
+          if (typeof opsRenderState2 === "function") {
+            opsRenderState2(msg2);
+            if (msg2.activeServerId)
+              window._opsActiveServerId = msg2.activeServerId;
+          }
+          break;
+        case "opsServerAdded":
+        case "opsServerRemoved":
+          if (typeof opsRenderState2 === "function") {
+            vscode2.postMessage({ type: "opsGetState" });
+          }
+          break;
+        case "opsCommandOutput":
+          if (typeof opsRenderCommandOutput2 === "function")
+            opsRenderCommandOutput2(msg2);
+          break;
+        case "opsRecentOps":
+          if (typeof opsRenderRecentOps2 === "function")
+            opsRenderRecentOps2(msg2.ops || []);
+          break;
+        case "opsError":
+          if (msg2.error)
+            showToast2(msg2.error, "error");
+          break;
+        case "diagnosticsResult":
+          if (typeof renderDiagnosticsResult2 === "function") {
+            renderDiagnosticsResult2(msg2.result, msg2.error);
+          }
+          break;
+        case "diagnosticsProgress":
+          if (typeof renderDiagnosticsProgress2 === "function") {
+            renderDiagnosticsProgress2(msg2.stage, msg2.progress);
+          }
           break;
         case "showError":
-          if (msg.message) {
-            addMessage2("system", "Error: " + msg.message);
+          if (msg2.message) {
+            addMessage2("system", "Error: " + msg2.message);
           }
           break;
       }
@@ -10372,6 +12391,7 @@
   var STATION_MAP = window.__SC_STATION_MAP__;
   var BUILD_ID = window.__SC_BUILD_ID__;
   var vscode = window.__SC_VSCODE__;
+  var chatStore = createChatStore({ uiState, PERSONA_MAP, vscode });
   var currentTab = uiState.currentTab;
   var currentChatMode = uiState.chatMode;
   var currentMode = uiState.mode;
@@ -10388,6 +12408,7 @@
   var chatCounter = 0;
   var currentSettings = {};
   var _gptFlowPending = false;
+  window.chatStore = chatStore;
   var flowManager = createFlowPanelHandlers({
     d3: typeof d3 !== "undefined" ? d3 : null,
     escapeHtml
@@ -10420,11 +12441,149 @@
     initSectorMap,
     renderSectorMap,
     destroySectorMap,
+    resizeSectorMap,
     requestSectorMapData,
     getDefaultSectorData,
     createOrbitalGraph,
     initAiOrbitalFlow
   } = sectorMapManager;
+  var engineerHandlers = createEngineerHandlers({
+    vscode,
+    escapeHtml
+  });
+  var {
+    engineerRenderStatus,
+    engineerRenderSuggestions,
+    engineerRenderHistory,
+    engineerRenderPrompt,
+    engineerDismissPrompt,
+    engineerToggleShowAll,
+    engineerAction,
+    engineerRefresh,
+    engineerDelegate,
+    engineerRequestHistory,
+    engineerPromptAction,
+    engineerHandleDelegated,
+    engineerCheckSectors
+  } = engineerHandlers;
+  var autopilotHandlers = createAutopilotHandlers({
+    vscode
+  });
+  var {
+    autopilotRenderStatus,
+    autopilotRenderStepResult,
+    autopilotRenderSessionPrompt,
+    autopilotRenderConfig,
+    autopilotPause,
+    autopilotResume,
+    autopilotAbort,
+    autopilotRequestStatus,
+    autopilotCheckSession,
+    autopilotResumeSession,
+    autopilotClearSession,
+    autopilotUpdateConfig
+  } = autopilotHandlers;
+  var gameuiHandlers = createGameUIHandlers({
+    vscode
+  });
+  var {
+    gameuiRenderState,
+    gameuiRenderCatalog,
+    gameuiRenderEvent,
+    gameuiRenderThemes,
+    gameuiRequestState,
+    gameuiRequestCatalog,
+    gameuiFilterCategory,
+    gameuiGenerateComponent,
+    gameuiRunPhase,
+    gameuiRunAll,
+    gameuiStop,
+    gameuiRequestThemes,
+    gameuiSetActiveTheme,
+    gameuiGenerateThemeUSS,
+    gameuiSaveState,
+    gameuiLoadState
+  } = gameuiHandlers;
+  var dbHandlers = createDbHandlers({
+    vscode
+  });
+  var {
+    dbRenderConnectionList,
+    dbRenderSchema,
+    dbRenderQueryResult,
+    dbRenderTestResult,
+    dbShowConnectionWizard,
+    dbAddConnection,
+    dbRemoveConnection,
+    dbTestConnection,
+    dbSetActive,
+    dbGetSchema,
+    dbRequestState
+  } = dbHandlers;
+  var chatSearchHandlers = createChatSearchHandlers({
+    vscode,
+    escapeHtml
+  });
+  var {
+    chatSearchToggle,
+    chatSearchInput,
+    chatSearchRenderResults,
+    chatSearchLoadResult,
+    chatSearchClose
+  } = chatSearchHandlers;
+  var commsHandlers = createCommsHandlers({
+    vscode,
+    escapeHtml
+  });
+  var {
+    commsRenderState,
+    commsRenderServices,
+    commsRenderScanDetail,
+    commsRenderScanStarted,
+    commsRenderScanCompleted,
+    commsRenderPrompt,
+    commsRequestState,
+    commsSetTier,
+    commsCheckServices,
+    commsStartScan,
+    commsViewScan,
+    commsCloseScanDetail,
+    commsInvestigateFinding,
+    commsGenerateFixForFinding
+  } = commsHandlers;
+  var opsHandlers = createOpsHandlers({
+    vscode,
+    escapeHtml
+  });
+  var {
+    opsRenderState,
+    opsRenderServerList,
+    opsRenderServerDetail,
+    opsRenderRecentOps,
+    opsRenderCommandOutput,
+    opsRequestState,
+    opsAddServer,
+    opsRemoveServer,
+    opsSelectServer,
+    opsTestConnection,
+    opsHealthCheck,
+    opsHardenServer,
+    opsDeployService,
+    opsExecuteCommand,
+    opsShowOpOutput
+  } = opsHandlers;
+  var diagHandlers = createDiagnosticsHandlers({
+    vscode,
+    escapeHtml,
+    showToast
+  });
+  var {
+    onDiagnosticsTabOpen,
+    runDiagnosticsScan,
+    renderDiagnosticsResult,
+    renderDiagnosticsProgress,
+    diagnosticsOpenFile
+  } = diagHandlers;
   var chatSessionManager = createChatSessionManager({
     vscode,
     getCurrentMode: () => currentMode,
@@ -10554,7 +12713,20 @@
     unityCheckConnection,
     onSectorsTabOpen: () => {
       initSectorMap();
+      resizeSectorMap();
       requestSectorMapData();
+    },
+    onEngineerTabOpen: () => {
+      vscode.postMessage({ type: "engineerStatus" });
+    },
+    onCommsTabOpen: () => {
+      vscode.postMessage({ type: "commsGetState" });
+    },
+    onInfraTabOpen: () => {
+      vscode.postMessage({ type: "opsGetState" });
+    },
+    onDiagnosticsTabOpen: () => {
+      vscode.postMessage({ type: "diagnosticsGetLast" });
     }
   });
   Object.assign(window, {
@@ -10584,6 +12756,125 @@
         vscode.postMessage({ type: "sectorOpenAsmdef", sectorId: nameEl.dataset.sectorId });
       }
     },
+    // --- Sector Configuration UI (CF-8) ---
+    sectorConfigOpen: () => {
+      const panel = document.getElementById("sectorConfigPanel");
+      const mapContainer = document.querySelector(".sector-map-container");
+      const detailCard = document.getElementById("sectorDetailCard");
+      const summary = document.querySelector(".sector-map-summary");
+      if (panel) {
+        const isVisible = panel.style.display !== "none";
+        panel.style.display = isVisible ? "none" : "block";
+        if (mapContainer)
+          mapContainer.style.display = isVisible ? "" : "none";
+        if (detailCard)
+          detailCard.style.display = "none";
+        if (summary)
+          summary.style.display = isVisible ? "" : "none";
+        if (!isVisible) {
+          vscode.postMessage({ type: "sectorConfigGet" });
+        }
+      }
+    },
+    sectorConfigClose: () => {
+      const panel = document.getElementById("sectorConfigPanel");
+      const mapContainer = document.querySelector(".sector-map-container");
+      const summary = document.querySelector(".sector-map-summary");
+      if (panel)
+        panel.style.display = "none";
+      if (mapContainer)
+        mapContainer.style.display = "";
+      if (summary)
+        summary.style.display = "";
+    },
+    sectorConfigApplyTemplate: (templateId) => {
+      if (!templateId)
+        return;
+      vscode.postMessage({ type: "sectorConfigApplyTemplate", templateId });
+    },
+    sectorConfigAutoDetect: () => {
+      const statusEl = document.getElementById("sectorConfigStatus");
+      if (statusEl)
+        statusEl.textContent = "Scanning workspace...";
+      vscode.postMessage({ type: "sectorConfigAutoDetect" });
+    },
+    sectorConfigAdd: () => {
+      const list = document.getElementById("sectorConfigList");
+      if (!list)
+        return;
+      const idx = list.querySelectorAll(".sector-config-row").length;
+      const row = document.createElement("div");
+      row.className = "sector-config-row";
+      row.dataset.index = String(idx);
+      row.innerHTML = `
+          <div style="display:flex; gap:4px; align-items:center;">
+            <input type="color" value="#6366f1" class="sector-color-input" />
+            <input type="text" placeholder="sector-id" class="sector-id-input" style="width:80px;" />
+            <input type="text" placeholder="DISPLAY NAME" class="sector-name-input" style="flex:1;" />
+            <button class="btn-secondary" onclick="sectorConfigRemoveRow(this)" style="padding:2px 6px; font-size:10px;">&#x2715;</button>
+          </div>
+          <div style="display:flex; gap:4px; margin-top:3px;">
+            <input type="text" placeholder="Paths: **/Folder1/**, **/Folder2/**" class="sector-paths-input" style="flex:1;" />
+          </div>
+          <div style="display:flex; gap:4px; margin-top:3px;">
+            <input type="text" placeholder="Dependencies: core, inventory" class="sector-deps-input" style="flex:1;" />
+            <label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" class="sector-approval-input" /> Approval</label>
+          </div>
+        `;
+      list.appendChild(row);
+    },
+    sectorConfigRemoveRow: (btn) => {
+      const row = btn.closest(".sector-config-row");
+      if (row)
+        row.remove();
+    },
+    sectorConfigSave: () => {
+      const list = document.getElementById("sectorConfigList");
+      if (!list)
+        return;
+      const rows = list.querySelectorAll(".sector-config-row");
+      const sectors = [];
+      rows.forEach((row) => {
+        const id = row.querySelector(".sector-id-input")?.value?.trim();
+        const name = row.querySelector(".sector-name-input")?.value?.trim();
+        const color = row.querySelector(".sector-color-input")?.value || "#6366f1";
+        const pathsRaw = row.querySelector(".sector-paths-input")?.value || "";
+        const depsRaw = row.querySelector(".sector-deps-input")?.value || "";
+        const approval = row.querySelector(".sector-approval-input")?.checked || false;
+        const description = row.dataset.description || "";
+        const rules = row.dataset.rules || "";
+        const icon = row.dataset.icon || "cpu";
+        if (id) {
+          sectors.push({
+            id,
+            name: name || id.toUpperCase(),
+            icon,
+            description,
+            paths: pathsRaw.split(",").map((p) => p.trim()).filter((p) => p),
+            rules,
+            dependencies: depsRaw.split(",").map((d) => d.trim()).filter((d) => d),
+            approvalRequired: approval,
+            color
+          });
+        }
+      });
+      if (sectors.length === 0) {
+        const statusEl2 = document.getElementById("sectorConfigStatus");
+        if (statusEl2)
+          statusEl2.textContent = "No sectors to save.";
+        return;
+      }
+      vscode.postMessage({ type: "sectorConfigSave", sectors });
+      const statusEl = document.getElementById("sectorConfigStatus");
+      if (statusEl)
+        statusEl.textContent = "Saving...";
+    },
+    sectorConfigExport: () => {
+      vscode.postMessage({ type: "sectorConfigExport" });
+    },
+    sectorConfigImport: () => {
+      vscode.postMessage({ type: "sectorConfigImport" });
+    },
     // Security & Quality scan functions
     runSecurityScan: () => {
       vscode.postMessage({ type: "securityScan" });
@@ -10597,9 +12888,88 @@
     exportQualityReport: () => {
       vscode.postMessage({ type: "qualityExport" });
     },
+    // --- Station Engineer (Phase 1) ---
+    engineerRefresh,
+    engineerAction,
+    engineerDelegate,
+    engineerRequestHistory,
+    engineerToggleShowAll,
+    engineerPromptAction,
+    // --- Autopilot (Phase 3) ---
+    autopilotPause,
+    autopilotResume,
+    autopilotAbort,
+    autopilotRequestStatus,
+    autopilotCheckSession,
+    autopilotResumeSession,
+    autopilotClearSession,
+    autopilotUpdateConfig,
+    // --- Game UI Pipeline (Phase 4) ---
+    gameuiRequestState,
+    gameuiRequestCatalog,
+    gameuiFilterCategory,
+    gameuiGenerateComponent,
+    gameuiRunPhase,
+    gameuiRunAll,
+    gameuiStop,
+    gameuiRequestThemes,
+    gameuiSetActiveTheme,
+    gameuiGenerateThemeUSS,
+    gameuiSaveState,
+    gameuiLoadState,
+    // --- Build Pipeline (Phase 6.3) ---
+    unityBuildCheck: () => {
+      const indicator = document.getElementById("buildStatusIndicator");
+      if (indicator) {
+        indicator.textContent = "Checking...";
+        indicator.style.color = "var(--text-secondary)";
+      }
+      vscode.postMessage({ type: "unityBuildCheck" });
+    },
+    // --- Chat Search (Phase 6.2) ---
+    chatSearchToggle,
+    chatSearchInput,
+    chatSearchLoadResult,
+    chatSearchClose,
+    // --- Database Panel (Phase 6.1) ---
+    dbShowConnectionWizard,
+    dbAddConnection,
+    dbRemoveConnection,
+    dbTestConnection,
+    dbSetActive,
+    dbGetSchema,
+    dbRequestState,
+    // --- Comms Array (Phase 7) ---
+    commsRequestState,
+    commsSetTier,
+    commsCheckServices,
+    commsStartScan,
+    commsViewScan,
+    commsCloseScanDetail,
+    commsInvestigateFinding,
+    commsGenerateFixForFinding,
+    // --- Ops Array (Phase 8) ---
+    opsRequestState,
+    opsAddServer,
+    opsRemoveServer,
+    opsSelectServer,
+    opsTestConnection,
+    opsHealthCheck,
+    opsHardenServer,
+    opsDeployService,
+    opsShowOpOutput,
+    opsExecuteActiveCommand: () => {
+      const state = window._opsActiveServerId;
+      if (state) {
+        opsExecuteCommand(state);
+      }
+    },
+    // --- Diagnostics (CF-3) ---
+    runDiagnosticsScan,
+    diagnosticsOpenFile,
     // Context Handoff functions
     handoffToPersona: (toPersona, action) => {
-      const fromPersona = uiState.currentPersona || "nova";
+      const fromPersona = uiState.currentPersona || "lead-engineer";
       const chatEl = document.getElementById("chatMessages");
       const lastMessages = chatEl ? chatEl.innerText.slice(-500) : "";
       vscode.postMessage({
@@ -10636,22 +13006,21 @@
       };
       setTimeout(() => document.addEventListener("click", dismiss), 10);
     },
-    handoffToGears: () => {
-      window.handoffToPersona("gears", "send_and_stay");
+    handoffToQaEngineer: () => {
+      window.handoffToPersona("qa-engineer", "send_and_stay");
     },
-    handoffToNova: () => {
-      window.handoffToPersona("nova", "send_and_stay");
+    handoffToLeadEngineer: () => {
+      window.handoffToPersona("lead-engineer", "send_and_stay");
     },
-    handoffToIndex: () => {
-      window.handoffToPersona("index", "send_and_stay");
+    handoffToTechnicalWriter: () => {
+      window.handoffToPersona("technical-writer", "send_and_stay");
     },
-    handoffGoToGears: () => {
-      window.handoffToPersona("gears", "go_to_tab");
+    handoffGoToQaEngineer: () => {
+      window.handoffToPersona("qa-engineer", "go_to_tab");
       window.switchTab("station");
     },
-    handoffGoToNova: () => {
-      window.handoffToPersona("nova", "go_to_tab");
-      window.switchTab("chat");
+    handoffGoToLeadEngineer: () => {
+      window.handoffToPersona("lead-engineer", "go_to_tab");
     },
     // Autosolve functions
     autosolveAccept: (id) => {
@@ -10668,7 +13037,7 @@
     }
   });
   var savedTab = localStorage.getItem("spacecode.controlTab") || "info";
-  var allowedTabs = /* @__PURE__ */ new Set(["info", "coordinator", "ops", "unity", "sectors", "security", "quality"]);
+  var allowedTabs = /* @__PURE__ */ new Set(["info", "coordinator", "ops", "unity", "sectors", "security", "quality", "comms", "infra"]);
   setTimeout(() => switchControlTab(allowedTabs.has(savedTab) ? savedTab : "info"), 0);
   setTimeout(() => {
     localStorage.removeItem("spacecode.panelMode.chat");
@@ -10889,8 +13258,14 @@
     toggleSwarmSidebar,
     toggleContextFlowDrawer
   } = rightPanelHandlers;
+  var _setRightPanelMode = (mode) => {
+    setRightPanelMode(mode);
+    if (mode === "flow") {
+      setTimeout(() => initContextFlowVisualization(), 50);
+    }
+  };
   Object.assign(window, {
-    setRightPanelMode,
+    setRightPanelMode: _setRightPanelMode,
     toggleContextFlowPanel,
     toggleSwarmSidebar,
     toggleContextFlowDrawer
@@ -10988,13 +13363,16 @@
     PERSONA_MAP,
     setCurrentTab: (value) => {
       currentTab = value;
+      reconcileContext(value);
     },
     setCurrentMode: (value) => {
       currentMode = value;
     },
     setCurrentPersona: (value) => {
       uiState.currentPersona = value;
+      updateContextBar();
     },
+    getPersonaManualOverride: () => uiState.personaManualOverride,
     getDashboardSubtab: () => uiState.dashboardSubtab || "docs",
     restoreRightPanelModeForTab,
     updateChatModeSwitcherVisibility,
@@ -11028,8 +13406,199 @@
       settingsBtn?.classList.remove("active");
     }
   };
+  var PERSONA_COLORS2 = {
+    "lead-engineer": "#a855f7",
+    "qa-engineer": "#f59e0b",
+    "technical-writer": "#3b82f6",
+    "issue-triager": "#10b981",
+    "database-engineer": "#22c55e",
+    "art-director": "#ec4899"
+  };
+  var PERSONA_LABELS2 = {
+    "lead-engineer": "Lead Engineer",
+    "qa-engineer": "QA Engineer",
+    "technical-writer": "Technical Writer",
+    "issue-triager": "Issue Triager",
+    "database-engineer": "Database Engineer",
+    "art-director": "Art Director"
+  };
+  function updateContextBar() {
+    const personaId = uiState.currentPersona || "lead-engineer";
+    const color = PERSONA_COLORS2[personaId] || "#a855f7";
+    const label = PERSONA_LABELS2[personaId] || personaId;
+    const isPinned = !!uiState.personaManualOverride;
+    const tagPersona = document.getElementById("tagPersona");
+    const tagDot = document.getElementById("tagPersonaDot");
+    const tagLabel = document.getElementById("tagPersonaLabel");
+    if (tagDot)
+      tagDot.style.background = color;
+    if (tagLabel)
+      tagLabel.textContent = label;
+    if (tagPersona) {
+      tagPersona.classList.toggle("pinned", isPinned);
+      tagPersona.style.borderColor = `${color}66`;
+      tagPersona.style.background = `${color}14`;
+    }
+    const SKILL_LABELS = {
+      "sector-analysis": "Sectors",
+      "asmdef-check": "Asmdef",
+      "build-tools": "Build",
+      "project-health": "Health",
+      "settings-access": "Settings",
+      "agent-management": "Agents",
+      "task-delegation": "Tasks",
+      "skill-lookup": "Skills",
+      "doc-templates": "Docs"
+    };
+    const skillsEl = document.getElementById("tagSkills");
+    if (skillsEl) {
+      const combined = [.../* @__PURE__ */ new Set([...uiState.autoSkills || [], ...uiState.manualSkills || []])];
+      skillsEl.innerHTML = combined.map((s) => {
+        const display = SKILL_LABELS[s] || s.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+        return `<span class="tag tag-skill" title="${s}">${display}</span>`;
+      }).join("");
+    }
+    const skinsEl = document.getElementById("tagSkins");
+    if (skinsEl) {
+      const skins = uiState.activeSkins || [];
+      skinsEl.innerHTML = skins.map(
+        (s) => `<span class="tag tag-skin" title="${s}">${s}</span>`
+      ).join("");
+    }
+  }
+  function setPersonaManual(personaId) {
+    uiState.currentPersona = personaId;
+    uiState.personaManualOverride = true;
+    updateContextBar();
+    closePersonaMenu();
+    vscode.postMessage({ type: "setPersona", personaId });
+  }
+  function clearPersonaOverride() {
+    uiState.personaManualOverride = false;
+    const personaKey = currentTab === "dashboard" ? `dashboard:${uiState.dashboardSubtab || "docs"}` : currentTab;
+    const persona = PERSONA_MAP && PERSONA_MAP[personaKey] || PERSONA_MAP[currentTab] || "lead-engineer";
+    uiState.currentPersona = persona;
+    updateContextBar();
+  }
+  function togglePersonaMenu() {
+    const menu = document.getElementById("personaMenu");
+    const tag = document.getElementById("tagPersona");
+    if (!menu)
+      return;
+    const isOpen = menu.style.display !== "none";
+    menu.style.display = isOpen ? "none" : "block";
+    if (!isOpen && tag) {
+      const rect = tag.getBoundingClientRect();
+      const chatPane = document.getElementById("chatPane");
+      const paneRect = chatPane ? chatPane.getBoundingClientRect() : { left: 0, top: 0 };
+      menu.style.position = "fixed";
+      menu.style.left = rect.left + "px";
+      menu.style.bottom = window.innerHeight - rect.top + 4 + "px";
+      menu.style.top = "auto";
+    }
+    if (!isOpen) {
+      const dismiss = (e) => {
+        if (!menu.contains(e.target) && !e.target.closest("#tagPersona")) {
+          menu.style.display = "none";
+          document.removeEventListener("click", dismiss);
+        }
+      };
+      setTimeout(() => document.addEventListener("click", dismiss), 10);
+    }
+  }
+  function closePersonaMenu() {
+    const menu = document.getElementById("personaMenu");
+    if (menu)
+      menu.style.display = "none";
+  }
+  function reconcileContext(newTab) {
+    const newAutoSkills = TAB_SKILL_MAP[newTab] || [];
+    uiState.autoSkills = newAutoSkills;
+    chatStore.setAutoSkills(newAutoSkills);
+    if (!uiState.personaManualOverride) {
+      const personaKey = newTab === "dashboard" ? `dashboard:${uiState.dashboardSubtab || "docs"}` : newTab;
+      const persona = PERSONA_MAP && PERSONA_MAP[personaKey] || PERSONA_MAP[newTab] || "lead-engineer";
+      uiState.currentPersona = persona;
+    }
+    updateContextBar();
+  }
+  function toggleChatCollapse() {
+    const chatPane = document.getElementById("chatPane");
+    const expandBtn = document.getElementById("chatExpandBtn");
+    if (!chatPane)
+      return;
+    const isCollapsed = chatPane.classList.toggle("collapsed");
+    uiState.chatCollapsed = isCollapsed;
+    localStorage.setItem("spacecode.chatCollapsed", isCollapsed ? "1" : "0");
+    if (expandBtn)
+      expandBtn.style.display = isCollapsed ? "block" : "none";
+  }
+  if (localStorage.getItem("spacecode.chatCollapsed") === "1") {
+    const chatPane = document.getElementById("chatPane");
+    const expandBtn = document.getElementById("chatExpandBtn");
+    if (chatPane)
+      chatPane.classList.add("collapsed");
+    if (expandBtn)
+      expandBtn.style.display = "block";
+    uiState.chatCollapsed = true;
+  }
+  function checkResponsiveLayout() {
+    const container = document.querySelector(".main-split");
+    if (!container)
+      return;
+    const width = container.getBoundingClientRect().width;
+    const isSinglePanel = width < 550;
+    document.body.classList.toggle("single-panel-mode", isSinglePanel);
+    if (!isSinglePanel) {
+      document.body.classList.remove("show-content");
+    }
+  }
+  function toggleSinglePanelView() {
+    document.body.classList.toggle("show-content");
+  }
+  var resizeObserver = new ResizeObserver(() => checkResponsiveLayout());
+  var mainSplitEl = document.querySelector(".main-split");
+  if (mainSplitEl)
+    resizeObserver.observe(mainSplitEl);
+  function tryNavigationCommand(text) {
+    const cmd = text.trim().toLowerCase();
+    const nav = BUILTIN_NAV_COMMANDS[cmd];
+    if (!nav)
+      return false;
+    if (nav.special === "help") {
+      const lines = Object.entries(BUILTIN_NAV_COMMANDS).filter(([, v]) => v.special !== "help").map(([k, v]) => `  **${k}** \u2014 ${v.label}`).join("\n");
+      const helpText = `**Available Commands:**
+${lines}
+  **/help** \u2014 Show this help`;
+      const chatMessages = document.getElementById("chatMessages");
+      if (chatMessages) {
+        const div = document.createElement("div");
+        div.className = "chat-message system";
+        div.innerHTML = `<div class="message-content" style="font-size:11px; white-space:pre-line; color:var(--text-secondary);">${helpText.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")}</div>`;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      return true;
+    }
+    switchTab(nav.tab);
+    if (nav.subtab) {
+      const switchDashboardSubtab2 = window.switchDashboardSubtab;
+      if (typeof switchDashboardSubtab2 === "function") {
+        switchDashboardSubtab2(nav.subtab);
+      }
+    }
+    return true;
+  }
   Object.assign(window, {
     switchTab,
+    setPersonaManual,
+    clearPersonaOverride,
+    togglePersonaMenu,
+    updateContextBar,
+    toggleChatCollapse,
+    toggleSinglePanelView,
+    tryNavigationCommand,
+    reconcileContext,
     toggleSettingsOverlay,
     // Legacy alias
     openSettings: toggleSettingsOverlay
@@ -11102,7 +13671,7 @@
     setGenerating,
     updateSendStopButton,
     stopConversation,
-    getCurrentPersona: () => uiState.currentPersona || "nova"
+    getCurrentPersona: () => uiState.currentPersona || "lead-engineer"
   });
   var {
     sendMessage,
@@ -11347,6 +13916,51 @@
     },
     toggleSoundEnabled: (enabled) => {
       vscode.postMessage({ type: "saveSoundSettings", enabled });
+    },
+    saveSoundSetting: (key, value) => {
+      if (key === "enabled") {
+        vscode.postMessage({ type: "saveSoundSettings", enabled: value });
+      } else if (key === "volume") {
+        vscode.postMessage({ type: "saveSoundSettings", volume: parseFloat(value) });
+      }
+    },
+    saveSoundEventSetting: (event, enabled) => {
+      const evts = {};
+      evts[event] = enabled;
+      vscode.postMessage({ type: "saveSoundSettings", events: evts });
+    },
+    soundVolumePreview: /* @__PURE__ */ (() => {
+      let previewTimer = null;
+      return (val) => {
+        const label = document.getElementById("soundVolumeLabel");
+        if (label)
+          label.textContent = `(${val}%)`;
+        if (previewTimer)
+          clearTimeout(previewTimer);
+        previewTimer = setTimeout(() => {
+          vscode.postMessage({ type: "previewSound", volume: parseFloat(val) / 100 });
+        }, 300);
+      };
+    })(),
+    loadSoundSettingsUI: (settings) => {
+      if (!settings)
+        return;
+      const enabledEl = document.getElementById("settingsSoundEnabled");
+      if (enabledEl)
+        enabledEl.checked = settings.enabled !== false;
+      const volEl = document.getElementById("settingsSoundVolume");
+      if (volEl)
+        volEl.value = String(Math.round((settings.volume || 0.5) * 100));
+      const volLabel = document.getElementById("soundVolumeLabel");
+      if (volLabel)
+        volLabel.textContent = `(${Math.round((settings.volume || 0.5) * 100)}%)`;
+      const events = settings.events || {};
+      const allEvents = ["aiComplete", "aiError", "buildSuccess", "buildFail", "planReady", "workflowDone", "jobQueued", "jobApproved", "sectorViolation", "notification"];
+      for (const evt of allEvents) {
+        const el = document.getElementById("soundEvt_" + evt);
+        if (el)
+          el.checked = events[evt] !== false;
+      }
     }
   });
   if (localStorage.getItem("spacecode.showBorders") === "1") {
@@ -11417,7 +14031,9 @@
     },
     setCurrentPersona: (value) => {
       uiState.currentPersona = value;
+      updateContextBar();
     },
+    getPersonaManualOverride: () => uiState.personaManualOverride,
     PERSONA_MAP
   });
   Object.assign(window, {
@@ -11494,10 +14110,10 @@
           bestType = t;
         }
       }
-      const routing = { bug: "gears", feature: "nova", doc_update: "index", refactor: "gears", question: "nova" };
-      const colors = { gears: "#f59e0b", nova: "#a855f7", index: "#3b82f6" };
-      const names = { gears: "Gears", nova: "Nova", index: "Index" };
-      const persona = routing[bestType] || "nova";
+      const routing = { bug: "qa-engineer", feature: "lead-engineer", doc_update: "technical-writer", refactor: "qa-engineer", question: "lead-engineer" };
+      const colors = { "qa-engineer": "#f59e0b", "lead-engineer": "#a855f7", "technical-writer": "#3b82f6" };
+      const names = { "qa-engineer": "QA Engineer", "lead-engineer": "Lead Engineer", "technical-writer": "Technical Writer" };
+      const persona = routing[bestType] || "lead-engineer";
       previewEl.style.display = "flex";
       previewEl.innerHTML = '<span style="font-size:10px;color:var(--text-secondary);">Auto-route:</span> <span style="font-size:10px;font-weight:600;color:' + (colors[persona] || "#888") + ';">' + bestType.replace("_", " ").toUpperCase() + " \u2192 " + (names[persona] || persona) + "</span>";
     },
@@ -11782,6 +14398,35 @@
     handleDevExportError,
     handleDevImportError,
     renderUsageStats,
+    engineerRenderStatus,
+    engineerRenderSuggestions,
+    engineerRenderHistory,
+    engineerRenderPrompt,
+    engineerHandleDelegated,
+    engineerCheckSectors,
+    autopilotRenderStatus,
+    autopilotRenderStepResult,
+    autopilotRenderSessionPrompt,
+    autopilotRenderConfig,
+    gameuiRenderState,
+    gameuiRenderCatalog,
+    gameuiRenderEvent,
+    gameuiRenderThemes,
+    dbRenderConnectionList,
+    dbRenderSchema,
+    dbRenderQueryResult,
+    dbRenderTestResult,
+    chatSearchRenderResults,
+    commsRenderState,
+    commsRenderScanDetail,
+    commsRenderScanStarted,
+    commsRenderScanCompleted,
+    commsRenderPrompt,
+    opsRenderState,
+    opsRenderCommandOutput,
+    opsRenderRecentOps,
+    renderDiagnosticsResult,
+    renderDiagnosticsProgress,
     vscode,
     getPlanTemplates: () => planTemplates,
     setPlanTemplates: (value) => {
@@ -11805,7 +14450,7 @@
   document.addEventListener("DOMContentLoaded", function() {
     initKbDropZone();
     initMainSplitter();
-    window.switchTab(TABS.CHAT);
+    window.switchTab(TABS.STATION);
     setTimeout(() => {
       initContextFlowVisualization();
     }, 100);

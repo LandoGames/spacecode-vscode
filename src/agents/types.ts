@@ -7,7 +7,7 @@
 /**
  * Agent ID type
  */
-export type AgentId = 'nova' | 'gears' | 'index' | 'triage' | 'vault' | 'palette';
+export type AgentId = 'lead-engineer' | 'qa-engineer' | 'technical-writer' | 'issue-triager' | 'database-engineer' | 'art-director';
 
 /**
  * Agent status

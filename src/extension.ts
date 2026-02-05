@@ -129,6 +129,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Register Markdown Editor (Phase 9)
+  const { MarkdownEditorProvider } = await import('./editors/MarkdownEditorProvider');
+  context.subscriptions.push(MarkdownEditorProvider.register(context));
+
   // Auto-open main panel on startup (for branded app experience)
   const isSpaceCodeApp = vscode.env.appName === 'SpaceCode';
   if (isSpaceCodeApp) {

@@ -87,12 +87,12 @@ export function dismissHandoff(id: string): boolean {
  */
 export function getPersonaTab(persona: AgentId): string {
   switch (persona) {
-    case 'nova': return 'chat';
-    case 'gears': return 'station';
-    case 'index': return 'dashboard';
-    case 'triage': return 'dashboard';
-    case 'vault': return 'dashboard';
-    case 'palette': return 'dashboard';
+    case 'lead-engineer': return 'chat';
+    case 'qa-engineer': return 'station';
+    case 'technical-writer': return 'dashboard';
+    case 'issue-triager': return 'dashboard';
+    case 'database-engineer': return 'dashboard';
+    case 'art-director': return 'dashboard';
     default: return 'chat';
   }
 }
@@ -102,12 +102,12 @@ export function getPersonaTab(persona: AgentId): string {
  */
 export function getPersonaName(persona: AgentId): string {
   const names: Record<AgentId, string> = {
-    nova: 'Nova',
-    gears: 'Gears',
-    index: 'Index',
-    triage: 'Triage',
-    vault: 'Vault',
-    palette: 'Palette',
+    'lead-engineer': 'Lead Engineer',
+    'qa-engineer': 'QA Engineer',
+    'technical-writer': 'Technical Writer',
+    'issue-triager': 'Issue Triager',
+    'database-engineer': 'Database Engineer',
+    'art-director': 'Art Director',
   };
   return names[persona] || persona;
 }

@@ -128,6 +128,35 @@ export function createMessageRouter(deps) {
     handleDevExportError,
     handleDevImportError,
     renderUsageStats,
+    engineerRenderStatus,
+    engineerRenderSuggestions,
+    engineerRenderHistory,
+    engineerRenderPrompt,
+    engineerHandleDelegated,
+    engineerCheckSectors,
+    autopilotRenderStatus,
+    autopilotRenderStepResult,
+    autopilotRenderSessionPrompt,
+    autopilotRenderConfig,
+    gameuiRenderState,
+    gameuiRenderCatalog,
+    gameuiRenderEvent,
+    gameuiRenderThemes,
+    dbRenderConnectionList,
+    dbRenderSchema,
+    dbRenderQueryResult,
+    dbRenderTestResult,
+    chatSearchRenderResults,
+    commsRenderState,
+    commsRenderScanDetail,
+    commsRenderScanStarted,
+    commsRenderScanCompleted,
+    commsRenderPrompt,
+    opsRenderState,
+    opsRenderCommandOutput,
+    opsRenderRecentOps,
+    renderDiagnosticsResult,
+    renderDiagnosticsProgress,
     vscode,
   } = deps;
 
@@ -447,6 +476,13 @@ export function createMessageRouter(deps) {
           // Confirmation handled by VS Code notification
           break;
 
+        case 'soundSettings':
+          // Load sound settings into the UI
+          if (typeof window.loadSoundSettingsUI === 'function') {
+            window.loadSoundSettingsUI(msg);
+          }
+          break;
+
         case 'cliStatus':
           renderCliStatus(msg.status);
           break;
@@ -714,12 +750,30 @@ export function createMessageRouter(deps) {
             if (smBadge) {
               smBadge.textContent = (msg.sectors || []).length + ' sectors';
             }
-            // Overall project health from avgHealth
+            // Overall project health from avgHealth + trend indicator
             if (smHealthBadge && typeof msg.avgHealth === 'number') {
               const pct = Math.round(msg.avgHealth * 100);
               const hColor = pct >= 90 ? '#22c55e' : pct >= 70 ? '#f59e0b' : '#ef4444';
               const hLabel = pct >= 90 ? 'Healthy' : pct >= 70 ? 'Warning' : 'Critical';
-              smHealthBadge.textContent = '\u25CF ' + hLabel + ' (' + pct + '%)';
+              // Health trend: store history and show arrow
+              let trendArrow = '';
+              try {
+                const TREND_KEY = 'spacecode.healthTrend';
+                const raw = localStorage.getItem(TREND_KEY);
+                const history = raw ? JSON.parse(raw) : [];
+                history.push({ t: Date.now(), h: msg.avgHealth });
+                // Keep last 10 entries
+                while (history.length > 10) history.shift();
+                localStorage.setItem(TREND_KEY, JSON.stringify(history));
+                if (history.length >= 2) {
+                  const prev = history[history.length - 2].h;
+                  const diff = msg.avgHealth - prev;
+                  if (diff > 0.02) trendArrow = ' \u2191';
+                  else if (diff < -0.02) trendArrow = ' \u2193';
+                  else trendArrow = ' \u2192';
+                }
+              } catch (_e) { /* ignore localStorage errors */ }
+              smHealthBadge.textContent = '\u25CF ' + hLabel + ' (' + pct + '%)' + trendArrow;
               smHealthBadge.style.color = hColor;
             } else if (smHealthBadge) {
               if (msg.passed === true) {
@@ -830,6 +884,156 @@ export function createMessageRouter(deps) {
                 scriptsEl.style.display = 'none';
               }
             }
+          }
+          break;
+        }
+
+        // --- Sector Configuration UI (CF-8) ---
+
+        case 'sectorConfigData': {
+          const list = document.getElementById('sectorConfigList');
+          const templateSelect = document.getElementById('sectorTemplateSelect');
+          const statusEl = document.getElementById('sectorConfigStatus');
+          if (list) {
+            list.innerHTML = '';
+            const sectors = msg.sectors || [];
+            sectors.forEach(function(s: any, idx: number) {
+              const row = document.createElement('div');
+              row.className = 'sector-config-row';
+              row.dataset.index = String(idx);
+              row.dataset.description = s.description || '';
+              row.dataset.rules = s.rules || '';
+              row.dataset.icon = s.icon || 'cpu';
+              row.innerHTML =
+                '<div style="display:flex; gap:4px; align-items:center;">' +
+                  '<input type="color" value="' + (s.color || '#6366f1') + '" class="sector-color-input" />' +
+                  '<input type="text" value="' + escapeHtml(s.id || '') + '" class="sector-id-input" style="width:80px;" />' +
+                  '<input type="text" value="' + escapeHtml(s.name || '') + '" class="sector-name-input" style="flex:1;" />' +
+                  '<button class="btn-secondary" onclick="sectorConfigRemoveRow(this)" style="padding:2px 6px; font-size:10px;">&#x2715;</button>' +
+                '</div>' +
+                '<div style="display:flex; gap:4px; margin-top:3px;">' +
+                  '<input type="text" value="' + escapeHtml((s.paths || []).join(', ')) + '" class="sector-paths-input" style="flex:1;" placeholder="Paths: **/Folder/**" />' +
+                '</div>' +
+                '<div style="display:flex; gap:4px; margin-top:3px;">' +
+                  '<input type="text" value="' + escapeHtml((s.dependencies || []).join(', ')) + '" class="sector-deps-input" style="flex:1;" placeholder="Dependencies: core, inventory" />' +
+                  '<label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" class="sector-approval-input" ' + (s.approvalRequired ? 'checked' : '') + ' /> Approval</label>' +
+                '</div>';
+              list.appendChild(row);
+            });
+          }
+          // Populate template select
+          if (templateSelect && msg.templates) {
+            templateSelect.innerHTML = '<option value="">(custom)</option>';
+            msg.templates.forEach(function(t: any) {
+              const opt = document.createElement('option');
+              opt.value = t.id;
+              opt.textContent = t.label + ' (' + t.sectorCount + ' sectors)';
+              templateSelect.appendChild(opt);
+            });
+            if (msg.appliedTemplate) {
+              (templateSelect as HTMLSelectElement).value = msg.appliedTemplate;
+            }
+          }
+          if (statusEl) {
+            if (msg.imported) {
+              statusEl.textContent = 'Imported ' + (msg.sectors || []).length + ' sectors. Click Save to apply.';
+            } else if (msg.appliedTemplate) {
+              statusEl.textContent = 'Template applied. Click Save to persist.';
+            } else {
+              statusEl.textContent = (msg.sectors || []).length + ' sectors loaded.';
+            }
+          }
+          break;
+        }
+
+        case 'sectorConfigSaved': {
+          const statusEl2 = document.getElementById('sectorConfigStatus');
+          if (statusEl2) statusEl2.textContent = 'Configuration saved to ' + (msg.configPath || 'disk') + '.';
+          shipSetStatus('Sector configuration saved. Map refreshed.');
+          break;
+        }
+
+        case 'sectorConfigSuggested': {
+          const list2 = document.getElementById('sectorConfigList');
+          const statusEl3 = document.getElementById('sectorConfigStatus');
+          const detected = msg.sectors || [];
+          if (detected.length === 0) {
+            if (statusEl3) statusEl3.textContent = 'No sectors detected. Add manually or choose a template.';
+            break;
+          }
+          // Populate the config list with suggestions
+          if (list2) {
+            list2.innerHTML = '';
+            detected.forEach(function(s: any, idx: number) {
+              const row = document.createElement('div');
+              row.className = 'sector-config-row';
+              row.dataset.index = String(idx);
+              row.dataset.description = s.description || '';
+              row.dataset.rules = s.rules || '';
+              row.dataset.icon = s.icon || 'cpu';
+              row.innerHTML =
+                '<div style="display:flex; gap:4px; align-items:center;">' +
+                  '<input type="color" value="' + (s.color || '#6366f1') + '" class="sector-color-input" />' +
+                  '<input type="text" value="' + escapeHtml(s.id || '') + '" class="sector-id-input" style="width:80px;" />' +
+                  '<input type="text" value="' + escapeHtml(s.name || '') + '" class="sector-name-input" style="flex:1;" />' +
+                  '<span style="font-size:9px; color:var(--text-secondary); padding:0 4px;">' + escapeHtml(s.source || '') + '</span>' +
+                  '<button class="btn-secondary" onclick="sectorConfigRemoveRow(this)" style="padding:2px 6px; font-size:10px;">&#x2715;</button>' +
+                '</div>' +
+                '<div style="display:flex; gap:4px; margin-top:3px;">' +
+                  '<input type="text" value="' + escapeHtml((s.paths || []).join(', ')) + '" class="sector-paths-input" style="flex:1;" />' +
+                '</div>' +
+                '<div style="display:flex; gap:4px; margin-top:3px;">' +
+                  '<input type="text" value="' + escapeHtml((s.dependencies || []).join(', ')) + '" class="sector-deps-input" style="flex:1;" />' +
+                  '<label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" class="sector-approval-input" /> Approval</label>' +
+                '</div>';
+              list2.appendChild(row);
+            });
+          }
+          if (statusEl3) statusEl3.textContent = 'Detected ' + detected.length + ' sectors. Review and Save.';
+          break;
+        }
+
+        case 'sectorConfigExported': {
+          const statusEl4 = document.getElementById('sectorConfigStatus');
+          if (statusEl4) statusEl4.textContent = 'Exported to ' + (msg.path || 'file') + '.';
+          shipSetStatus('Sector config exported.');
+          break;
+        }
+
+        // --- Station Engineer (Phase 1) ---
+
+        case 'engineerStatus': {
+          if (typeof engineerRenderStatus === 'function') {
+            engineerRenderStatus(msg);
+          }
+          break;
+        }
+
+        case 'engineerSuggestions': {
+          if (typeof engineerRenderSuggestions === 'function') {
+            engineerRenderSuggestions(msg.suggestions || []);
+            engineerCheckSectors(msg.suggestions || []);
+          }
+          break;
+        }
+
+        case 'engineerHistory': {
+          if (typeof engineerRenderHistory === 'function') {
+            engineerRenderHistory(msg.history || []);
+          }
+          break;
+        }
+
+        case 'engineerPrompt': {
+          if (typeof engineerRenderPrompt === 'function') {
+            engineerRenderPrompt(msg);
+          }
+          break;
+        }
+
+        case 'engineerDelegated': {
+          if (typeof engineerHandleDelegated === 'function') {
+            engineerHandleDelegated(msg);
           }
           break;
         }
@@ -2257,6 +2461,230 @@ export function createMessageRouter(deps) {
         case 'gitSettings':
           // Load saved git settings into form
           loadGitSettings(msg.settings);
+          break;
+
+        // --- Autopilot Engine (Phase 3) ---
+
+        case 'autopilotStatus': {
+          if (typeof autopilotRenderStatus === 'function') {
+            autopilotRenderStatus(msg);
+          }
+          break;
+        }
+
+        case 'autopilotStepResult': {
+          if (typeof autopilotRenderStepResult === 'function') {
+            autopilotRenderStepResult(msg.result || msg);
+          }
+          break;
+        }
+
+        case 'autopilotInterruptedSession': {
+          if (typeof autopilotRenderSessionPrompt === 'function') {
+            autopilotRenderSessionPrompt(msg);
+          }
+          break;
+        }
+
+        case 'autopilotConfig': {
+          if (typeof autopilotRenderConfig === 'function') {
+            autopilotRenderConfig(msg.config || msg);
+          }
+          break;
+        }
+
+        case 'autopilotError': {
+          if (typeof autopilotRenderStatus === 'function') {
+            autopilotRenderStatus({ status: 'failed', error: msg.error || msg.message });
+          }
+          break;
+        }
+
+        // --- Game UI Pipeline (Phase 4) ---
+
+        case 'gameuiState':
+        case 'gameuiStateLoaded': {
+          if (typeof gameuiRenderState === 'function') {
+            gameuiRenderState(msg);
+          }
+          break;
+        }
+
+        case 'gameuiCatalog': {
+          if (typeof gameuiRenderCatalog === 'function') {
+            gameuiRenderCatalog(msg);
+          }
+          break;
+        }
+
+        case 'gameuiPipelineEvent': {
+          if (typeof gameuiRenderEvent === 'function') {
+            gameuiRenderEvent(msg.event || msg);
+          }
+          break;
+        }
+
+        case 'gameuiThemes': {
+          if (typeof gameuiRenderThemes === 'function') {
+            gameuiRenderThemes(msg);
+          }
+          break;
+        }
+
+        case 'gameuiComponentResult':
+        case 'gameuiComponentUpdated': {
+          // Refresh state after component change
+          if (typeof gameuiRenderState === 'function' && msg.summary) {
+            gameuiRenderState(msg);
+          }
+          break;
+        }
+
+        case 'gameuiPhaseResult':
+        case 'gameuiPipelineComplete': {
+          if (typeof gameuiRenderState === 'function' && msg.summary) {
+            gameuiRenderState({ state: null, summary: msg.summary });
+          }
+          break;
+        }
+
+        // --- Database Panel (Phase 6.1) ---
+
+        case 'dbState':
+        case 'dbActiveChanged': {
+          if (typeof dbRenderConnectionList === 'function') {
+            dbRenderConnectionList(msg);
+          }
+          break;
+        }
+
+        case 'dbConnectionAdded':
+        case 'dbConnectionRemoved': {
+          if (typeof dbRenderConnectionList === 'function') {
+            dbRenderConnectionList(msg);
+          }
+          break;
+        }
+
+        case 'dbConnectionTested': {
+          if (typeof dbRenderTestResult === 'function') {
+            dbRenderTestResult(msg);
+          }
+          break;
+        }
+
+        case 'dbSchema': {
+          if (typeof dbRenderSchema === 'function') {
+            dbRenderSchema(msg);
+          }
+          break;
+        }
+
+        case 'dbQueryResult': {
+          if (typeof dbRenderQueryResult === 'function') {
+            dbRenderQueryResult(msg);
+          }
+          break;
+        }
+
+        // --- Chat Search (Phase 6.2) ---
+
+        case 'memorySearchResults': {
+          if (typeof chatSearchRenderResults === 'function') {
+            chatSearchRenderResults(msg);
+          }
+          break;
+        }
+
+        // --- Build Pipeline (Phase 6.3) ---
+
+        case 'buildResult': {
+          const buildEl = document.getElementById('buildStatusIndicator');
+          if (buildEl) {
+            if (msg.success) {
+              buildEl.textContent = '✓ Build OK';
+              buildEl.style.color = '#10b981';
+            } else {
+              buildEl.textContent = '✗ ' + (msg.errorCount || 0) + ' error(s)';
+              buildEl.style.color = '#ef4444';
+            }
+          }
+          if (msg.success) {
+            shipSetStatus('Unity build: No compile errors');
+          } else {
+            shipSetStatus('Unity build failed: ' + (msg.errorCount || 0) + ' compile error(s)');
+            showToast('Build failed: ' + (msg.errorCount || 0) + ' error(s)', 'error');
+          }
+          break;
+        }
+
+        // --- Comms Array (Phase 7) ---
+        case 'commsState':
+          if (typeof commsRenderState === 'function') commsRenderState(msg);
+          break;
+        case 'commsServicesChecked':
+          if (typeof commsRenderState === 'function') {
+            // Re-request full state to render updated services
+            vscode.postMessage({ type: 'commsGetState' });
+          }
+          break;
+        case 'commsScanStarted':
+          if (typeof commsRenderScanStarted === 'function') commsRenderScanStarted(msg);
+          break;
+        case 'commsScanCompleted':
+          if (typeof commsRenderScanCompleted === 'function') commsRenderScanCompleted(msg);
+          break;
+        case 'commsScanDetail':
+          if (typeof commsRenderScanDetail === 'function') commsRenderScanDetail(msg);
+          break;
+        case 'commsRecentScans':
+          // Handled via commsState
+          break;
+        case 'commsPrompt':
+          if (typeof commsRenderPrompt === 'function') commsRenderPrompt(msg);
+          break;
+        case 'commsError':
+          if (msg.error) {
+            const commsStatusEl = document.getElementById('commsScanStatus');
+            if (commsStatusEl) { commsStatusEl.textContent = msg.error; commsStatusEl.style.color = '#ef4444'; }
+            showToast(msg.error, 'error');
+          }
+          break;
+
+        // --- Ops Array (Phase 8) ---
+        case 'opsState':
+          if (typeof opsRenderState === 'function') {
+            opsRenderState(msg);
+            // Track active server for command execution
+            if (msg.activeServerId) window._opsActiveServerId = msg.activeServerId;
+          }
+          break;
+        case 'opsServerAdded':
+        case 'opsServerRemoved':
+          if (typeof opsRenderState === 'function') {
+            vscode.postMessage({ type: 'opsGetState' });
+          }
+          break;
+        case 'opsCommandOutput':
+          if (typeof opsRenderCommandOutput === 'function') opsRenderCommandOutput(msg);
+          break;
+        case 'opsRecentOps':
+          if (typeof opsRenderRecentOps === 'function') opsRenderRecentOps(msg.ops || []);
+          break;
+        case 'opsError':
+          if (msg.error) showToast(msg.error, 'error');
+          break;
+
+        // --- Diagnostics (CF-3) ---
+        case 'diagnosticsResult':
+          if (typeof renderDiagnosticsResult === 'function') {
+            renderDiagnosticsResult(msg.result, msg.error);
+          }
+          break;
+        case 'diagnosticsProgress':
+          if (typeof renderDiagnosticsProgress === 'function') {
+            renderDiagnosticsProgress(msg.stage, msg.progress);
+          }
           break;
 
         case 'showError':

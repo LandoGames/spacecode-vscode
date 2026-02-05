@@ -1,0 +1,144 @@
+rules:
+  - id: spacecode.ts.security.eval-usage
+    patterns:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+      - pattern: setTimeout($STR, ...)
+      - pattern: setInterval($STR, ...)
+    message: >
+      Dynamic code execution via eval/new Function/setTimeout(string) is dangerous.
+      Avoid passing user-controlled strings. Use direct function references instead.
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-95"
+      owasp: "A03:2021"
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.ts.security.innerHTML-xss
+    patterns:
+      - pattern: $EL.innerHTML = $VALUE
+      - pattern: $EL.outerHTML = $VALUE
+      - pattern: document.write(...)
+    message: >
+      Setting innerHTML/outerHTML or using document.write() with dynamic content
+      can lead to XSS. Use textContent, createElement(), or a sanitization library.
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-79"
+      owasp: "A07:2021"
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.ts.security.command-injection-node
+    patterns:
+      - pattern: exec($CMD + ...)
+      - pattern: exec(`...${$INPUT}...`)
+      - pattern: execSync($CMD + ...)
+      - pattern: execSync(`...${$INPUT}...`)
+    message: >
+      Potential command injection via exec/execSync with string concatenation.
+      Use execFile/execFileSync with separate arguments array instead.
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A03:2021"
+      confidence: HIGH
+      impact: HIGH
+
+  - id: spacecode.ts.security.path-traversal-node
+    patterns:
+      - pattern: fs.readFileSync($BASE + $INPUT, ...)
+      - pattern: fs.readFile($BASE + $INPUT, ...)
+      - pattern: fs.writeFileSync($BASE + $INPUT, ...)
+      - pattern: path.join($BASE, $INPUT)
+    message: >
+      Potential path traversal. Validate and sanitize file paths from user input.
+      Use path.resolve() and verify the result starts with the expected base directory.
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      owasp: "A01:2021"
+      confidence: MEDIUM
+      impact: HIGH
+
+  - id: spacecode.ts.security.hardcoded-secret
+    patterns:
+      - pattern: |
+          const $VAR = "sk-..."
+      - pattern: |
+          const $VAR = "ghp_..."
+      - pattern: |
+          const $VAR = "AKIA..."
+      - pattern: |
+          apiKey: "..."
+      - pattern: |
+          password: "..."
+      - pattern: |
+          secret: "..."
+    message: >
+      Potential hardcoded secret or API key. Move to environment variables
+      or a .env file (excluded from version control).
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-798"
+      owasp: "A07:2021"
+      confidence: MEDIUM
+      impact: HIGH
+
+  - id: spacecode.ts.security.prototype-pollution
+    patterns:
+      - pattern: $OBJ["__proto__"] = ...
+      - pattern: $OBJ.__proto__ = ...
+      - pattern: Object.assign($TARGET, $USER_INPUT)
+    message: >
+      Potential prototype pollution. Validate object keys from user input
+      and reject __proto__, constructor, and prototype. Use Object.create(null)
+      for lookup objects.
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-1321"
+      owasp: "A03:2021"
+      confidence: MEDIUM
+      impact: HIGH
+
+  - id: spacecode.ts.security.regex-dos
+    pattern: new RegExp($PATTERN)
+    message: >
+      Dynamic regular expression from user input can cause ReDoS
+      (Regular Expression Denial of Service). Validate and limit
+      regex complexity, or use a safe regex library.
+    languages: [typescript, javascript]
+    severity: INFO
+    metadata:
+      category: security
+      cwe: "CWE-1333"
+      confidence: LOW
+      impact: MEDIUM
+
+  - id: spacecode.ts.security.insecure-random
+    patterns:
+      - pattern: Math.random()
+    message: >
+      Math.random() is not cryptographically secure. For security-sensitive
+      operations (tokens, passwords), use crypto.randomBytes() or
+      crypto.getRandomValues() instead.
+    languages: [typescript, javascript]
+    severity: INFO
+    metadata:
+      category: security
+      cwe: "CWE-338"
+      confidence: LOW
+      impact: LOW

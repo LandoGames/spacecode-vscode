@@ -115,11 +115,7 @@ export function buildMainPanelHtml(
         </span>
       </div>
       <div class="mode-selector">
-        <button class="mode-btn chat active" data-tab="chat" onclick="switchTab('chat')">
-          <svg viewBox="0 0 24 24" width="14" height="14" style="margin-right: 4px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-          Chat
-        </button>
-        <button class="mode-btn station" data-tab="station" onclick="switchTab('station')">
+        <button class="mode-btn station active" data-tab="station" onclick="switchTab('station')">
           <svg viewBox="0 0 24 24" width="14" height="14" style="margin-right: 4px;"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
           Station
         </button>
@@ -155,28 +151,43 @@ export function buildMainPanelHtml(
 
   <div class="content">
     <div class="main-split">
-      <div class="left-pane">
-        <!-- Chat Section -->
+      <!-- Persistent Chat Pane (always visible, left 33%) -->
+      <div class="chat-pane" id="chatPane">
         <div class="chat-section" id="chatSection">
-      <!-- Chat Header (tabs + mode toggles) -->
-      <div class="chat-header-bar" id="chatModeSwitcher">
-        <div class="chat-mode-toggles" id="chatModeToggles" style="display: none;">
-          <button class="toggle-icon-btn" onclick="toggleContextFlowPanel()" title="Toggle Context Flow">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"></circle>
-              <circle cx="12" cy="4" r="1"></circle>
-              <circle cx="4" cy="12" r="1"></circle>
-              <circle cx="20" cy="12" r="1"></circle>
-              <circle cx="12" cy="20" r="1"></circle>
-              <line x1="12" y1="7" x2="12" y2="9"></line>
-              <line x1="7" y1="12" x2="9" y2="12"></line>
-              <line x1="15" y1="12" x2="17" y2="12"></line>
-              <line x1="12" y1="15" x2="12" y2="17"></line>
-            </svg>
-          </button>
-          <!-- Swarm toggle removed — replaced by Planning mode in Phase 3 -->
+      <!-- Chat Context Bar (V3 simplified) — collapse + search only; persona/skills moved to status bar -->
+      <div class="chat-context-bar" id="chatContextBar">
+        <div class="context-bar-left">
+          <!-- Persona menu (dropdown, anchored here but triggered from status bar tag) -->
+          <div id="personaMenuAnchor" style="position:relative;">
+            <div class="persona-menu" id="personaMenu" style="display:none;">
+              <button class="persona-menu-item" data-persona="lead-engineer" onclick="setPersonaManual('lead-engineer')"><span class="persona-dot" style="background:#a855f7;"></span> Lead Engineer</button>
+              <button class="persona-menu-item" data-persona="qa-engineer" onclick="setPersonaManual('qa-engineer')"><span class="persona-dot" style="background:#f59e0b;"></span> QA Engineer</button>
+              <button class="persona-menu-item" data-persona="technical-writer" onclick="setPersonaManual('technical-writer')"><span class="persona-dot" style="background:#3b82f6;"></span> Technical Writer</button>
+              <button class="persona-menu-item" data-persona="issue-triager" onclick="setPersonaManual('issue-triager')"><span class="persona-dot" style="background:#10b981;"></span> Issue Triager</button>
+              <button class="persona-menu-item" data-persona="database-engineer" onclick="setPersonaManual('database-engineer')"><span class="persona-dot" style="background:#22c55e;"></span> Database Engineer</button>
+              <button class="persona-menu-item" data-persona="art-director" onclick="setPersonaManual('art-director')"><span class="persona-dot" style="background:#ec4899;"></span> Art Director</button>
+            </div>
+          </div>
+        </div>
+        <div class="context-bar-right">
+          <button class="toolbar-icon-btn" onclick="chatSearchToggle()" title="Search chat history" style="padding:2px 4px; font-size:12px; opacity:0.6;">&#128269;</button>
+          <button class="chat-collapse-btn" id="chatCollapseBtn" onclick="toggleChatCollapse()" title="Collapse chat panel">&#x25C0;</button>
         </div>
       </div>
+
+      <!-- Chat Search Bar (Phase 6.2) -->
+      <div id="chatSearchBar" style="display:none; padding:4px 8px; background:var(--bg-secondary); border-bottom:1px solid var(--border-color);">
+        <div style="display:flex; gap:4px; align-items:center;">
+          <input id="chatSearchInput" type="text" placeholder="Search previous chats..."
+            oninput="chatSearchInput(this.value)"
+            onkeydown="if(event.key==='Escape') chatSearchClose();"
+            style="flex:1; background:var(--bg-primary); border:1px solid var(--border-color); color:var(--text-primary); padding:3px 6px; font-size:11px; border-radius:4px; outline:none;" />
+          <button class="btn-secondary" onclick="chatSearchClose()" style="padding:2px 6px; font-size:10px;">&#x2715;</button>
+        </div>
+        <div id="chatSearchResults" style="display:none; max-height:300px; overflow-y:auto; background:var(--bg-primary); border:1px solid var(--border-color); border-radius:4px; margin-top:4px;"></div>
+      </div>
+
+      <!-- Quick-access icon bar removed (V3 redesign) — navigation via header tabs -->
 
       <div class="chat-tabs" id="chatTabs"></div>
 
@@ -200,36 +211,23 @@ export function buildMainPanelHtml(
             </div>
           </div>
 
-          <div class="status-bar" id="statusBar">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Ready</span>
-            <!-- Persona Status Bar (12.2) -->
-            <div class="persona-status-bar" id="personaStatusBar">
-              <span class="persona-status-item" onclick="switchTab('chat')" title="Nova — Chat">
-                <span class="persona-dot" style="background:#a855f7;"></span>
-                <span class="persona-label" id="personaStatusNova">Idle</span>
-              </span>
-              <span class="persona-status-item" onclick="switchTab('station')" title="Gears — Station">
-                <span class="persona-dot" style="background:#f59e0b;"></span>
-                <span class="persona-label" id="personaStatusGears">Idle</span>
-              </span>
-              <span class="persona-status-item" onclick="switchTab('dashboard'); switchDashboardSubtab('docs')" title="Index — Docs">
-                <span class="persona-dot" style="background:#3b82f6;"></span>
-                <span class="persona-label" id="personaStatusIndex">Idle</span>
-              </span>
-              <span class="persona-status-item" onclick="switchTab('dashboard'); switchDashboardSubtab('tickets')" title="Triage — Tickets">
-                <span class="persona-dot" style="background:#10b981;"></span>
-                <span class="persona-label" id="personaStatusTriage">Idle</span>
-              </span>
-              <span class="persona-status-item" onclick="switchTab('dashboard'); switchDashboardSubtab('db')" title="Vault — DB">
-                <span class="persona-dot" style="background:#22c55e;"></span>
-                <span class="persona-label" id="personaStatusVault">Idle</span>
-              </span>
-              <span class="persona-status-item" onclick="switchTab('dashboard'); switchDashboardSubtab('art')" title="Palette — Art">
-                <span class="persona-dot" style="background:#ec4899;"></span>
-                <span class="persona-label" id="personaStatusPalette">Idle</span>
-              </span>
-            </div>
+          <div class="status-bar tag-strip" id="statusBar">
+            <!-- Persona tag (clickable → opens persona menu) -->
+            <span class="tag tag-persona" id="tagPersona" onclick="togglePersonaMenu()" title="Click to change persona">
+              <span class="tag-dot" id="tagPersonaDot" style="background:#a855f7;"></span>
+              <span id="tagPersonaLabel">Lead Engineer</span>
+              <span class="tag-pin" id="tagPersonaPin" title="Manually pinned">&#128204;</span>
+              <button class="tag-unpin" id="tagPersonaUnpin" onclick="event.stopPropagation(); clearPersonaOverride()" title="Clear override">&times;</button>
+            </span>
+            <!-- Skill tags (auto-populated per tab) -->
+            <span class="tag-group" id="tagSkills"></span>
+            <!-- Skin tags (context docs/templates loaded) -->
+            <span class="tag-group" id="tagSkins"></span>
+            <!-- Status tag -->
+            <span class="tag tag-status" id="tagStatus">
+              <span class="status-dot" id="statusDot"></span>
+              <span id="statusText">Ready</span>
+            </span>
           </div>
 
           <div class="token-bar-wrapper">
@@ -462,13 +460,13 @@ export function buildMainPanelHtml(
                     </button>
                     <div class="toolbar-dropdown-menu" id="handoffMenu" style="display:none;">
                       <div class="dropdown-header">Send context to...</div>
-                      <button class="dropdown-item" onclick="handoffToGears()"><span class="persona-dot" style="background:#f59e0b;"></span> Gears (Engineer) — Stay here</button>
-                      <button class="dropdown-item" onclick="handoffToNova()"><span class="persona-dot" style="background:#a855f7;"></span> Nova (Creator) — Stay here</button>
-                      <button class="dropdown-item" onclick="handoffToIndex()"><span class="persona-dot" style="background:#3b82f6;"></span> Index (Librarian) — Stay here</button>
+                      <button class="dropdown-item" onclick="handoffToQaEngineer()"><span class="persona-dot" style="background:#f59e0b;"></span> QA Engineer — Stay here</button>
+                      <button class="dropdown-item" onclick="handoffToLeadEngineer()"><span class="persona-dot" style="background:#a855f7;"></span> Lead Engineer — Stay here</button>
+                      <button class="dropdown-item" onclick="handoffToTechnicalWriter()"><span class="persona-dot" style="background:#3b82f6;"></span> Technical Writer — Stay here</button>
                       <div class="dropdown-divider"></div>
                       <div class="dropdown-header">Go to persona tab</div>
-                      <button class="dropdown-item" onclick="handoffGoToGears()"><span class="persona-dot" style="background:#f59e0b;"></span> Gears — Go to Station</button>
-                      <button class="dropdown-item" onclick="handoffGoToNova()"><span class="persona-dot" style="background:#a855f7;"></span> Nova — Go to Chat</button>
+                      <button class="dropdown-item" onclick="handoffGoToQaEngineer()"><span class="persona-dot" style="background:#f59e0b;"></span> QA Engineer — Go to Station</button>
+                      <button class="dropdown-item" onclick="handoffGoToLeadEngineer()"><span class="persona-dot" style="background:#a855f7;"></span> Lead Engineer</button>
                     </div>
                   </div>
                   <!-- GPT Consult toggle -->
@@ -499,6 +497,14 @@ export function buildMainPanelHtml(
 
 
     </div><!-- End chat-section -->
+      </div><!-- End chat-pane -->
+
+	  <div class="splitter" id="chatSplitter" title="Drag to resize"></div>
+
+      <!-- Content Pane (right 67%, tab-switchable) -->
+      <div class="content-pane" id="contentPane" style="position:relative;">
+        <!-- Expand button (visible when chat is collapsed) -->
+        <button class="chat-expand-btn" id="chatExpandBtn" onclick="toggleChatCollapse()" title="Expand chat panel" style="display:none;">&#x25B6;</button>
 
     <!-- Agents Section -->
     <div class="agents-section" id="agentsSection" style="display: none;">
@@ -1023,6 +1029,46 @@ export function buildMainPanelHtml(
             <button class="btn-secondary" onclick="rebuildIndex()">Rebuild Index</button>
             <button class="btn-secondary" onclick="clearCache()">Clear Cache</button>
             <button class="btn-danger" onclick="confirmResetDb()">Reset Database</button>
+          </div>
+
+          <!-- External Database Connections (Phase 6.1) -->
+          <div class="db-section" style="margin-top:12px;">
+            <div class="section-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <h4>External Databases</h4>
+              <button class="btn-secondary btn-sm" onclick="dbShowConnectionWizard()" style="padding:2px 8px; font-size:10px;">+ Connect</button>
+            </div>
+            <div id="dbConnectionList" style="margin-top:6px;"></div>
+            <div id="dbConnectionWizard" style="display:none; margin-top:8px; padding:8px; background:var(--bg-primary); border:1px solid var(--border-color); border-radius:6px;">
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; gap:4px; align-items:center;">
+                  <label style="font-size:10px; color:var(--text-secondary); width:60px;">Provider</label>
+                  <select id="dbProviderSelect" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="sqlite">SQLite</option>
+                    <option value="mongodb">MongoDB</option>
+                    <option value="supabase">Supabase</option>
+                    <option value="firebase">Firebase</option>
+                  </select>
+                </div>
+                <div style="display:flex; gap:4px; align-items:center;">
+                  <label style="font-size:10px; color:var(--text-secondary); width:60px;">Name</label>
+                  <input id="dbConnNameInput" type="text" placeholder="My Database" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                </div>
+                <div style="display:flex; gap:4px; align-items:center;">
+                  <label style="font-size:10px; color:var(--text-secondary); width:60px;">Host</label>
+                  <input id="dbHostInput" type="text" placeholder="localhost" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                </div>
+                <div style="display:flex; gap:4px; align-items:center;">
+                  <label style="font-size:10px; color:var(--text-secondary); width:60px;">Database</label>
+                  <input id="dbNameInput" type="text" placeholder="mydb" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                </div>
+                <div style="display:flex; gap:4px;">
+                  <button class="btn-primary" onclick="dbAddConnection()" style="padding:3px 8px; font-size:10px;">Add</button>
+                  <button class="btn-secondary" onclick="document.getElementById('dbConnectionWizard').style.display='none';" style="padding:3px 8px; font-size:10px;">Cancel</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1694,6 +1740,63 @@ export function buildMainPanelHtml(
             </div>
           </div>
 
+          <!-- Sound Settings -->
+          <div class="settings-section">
+            <div class="section-header"><h4>Sound Notifications</h4></div>
+            <div class="settings-form" id="soundSettingsForm">
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label>Enable sounds</label>
+                <input type="checkbox" id="settingsSoundEnabled" onchange="saveSoundSetting('enabled', this.checked)" />
+              </div>
+              <div class="form-group">
+                <label>Volume <span id="soundVolumeLabel" style="color:var(--text-secondary);">(50%)</span></label>
+                <input type="range" id="settingsSoundVolume" min="0" max="100" value="50" style="width:100%;" oninput="soundVolumePreview(this.value)" onchange="saveSoundSetting('volume', this.value / 100)" />
+              </div>
+              <div style="font-size:10px; color:var(--text-secondary); margin:4px 0 8px;">Per-event toggles:</div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">AI response complete</label>
+                <input type="checkbox" id="soundEvt_aiComplete" checked onchange="saveSoundEventSetting('aiComplete', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">AI error</label>
+                <input type="checkbox" id="soundEvt_aiError" checked onchange="saveSoundEventSetting('aiError', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Build success</label>
+                <input type="checkbox" id="soundEvt_buildSuccess" checked onchange="saveSoundEventSetting('buildSuccess', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Build fail</label>
+                <input type="checkbox" id="soundEvt_buildFail" checked onchange="saveSoundEventSetting('buildFail', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Plan ready</label>
+                <input type="checkbox" id="soundEvt_planReady" checked onchange="saveSoundEventSetting('planReady', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Workflow done</label>
+                <input type="checkbox" id="soundEvt_workflowDone" checked onchange="saveSoundEventSetting('workflowDone', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Job queued</label>
+                <input type="checkbox" id="soundEvt_jobQueued" checked onchange="saveSoundEventSetting('jobQueued', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Job approved</label>
+                <input type="checkbox" id="soundEvt_jobApproved" checked onchange="saveSoundEventSetting('jobApproved', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Sector violation</label>
+                <input type="checkbox" id="soundEvt_sectorViolation" checked onchange="saveSoundEventSetting('sectorViolation', this.checked)" />
+              </div>
+              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="font-size:11px;">Notification</label>
+                <input type="checkbox" id="soundEvt_notification" checked onchange="saveSoundEventSetting('notification', this.checked)" />
+              </div>
+              <p class="form-hint" style="margin-top:6px;">Sound files: media/sounds/*.mp3</p>
+            </div>
+          </div>
+
           <!-- Developer Settings (12.1) -->
           <div class="settings-section">
             <div class="section-header"><h4>Developer</h4></div>
@@ -1701,10 +1804,6 @@ export function buildMainPanelHtml(
               <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
                 <label>Show panel borders</label>
                 <input type="checkbox" id="settingsShowBorders" onchange="togglePanelBorders(this.checked)" />
-              </div>
-              <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
-                <label>Sound notifications</label>
-                <input type="checkbox" id="settingsSoundEnabled" onchange="toggleSoundEnabled(this.checked)" />
               </div>
             </div>
           </div>
@@ -1968,19 +2067,16 @@ source "$HOME/.cargo/env"
       </div>
     </div><!-- End dashboard-section -->
 
-	  </div><!-- End left-pane -->
-
-	  <div class="splitter" id="mainSplitter" title="Drag to resize"></div>
-
-	  <div class="right-pane" id="rightPane" data-panel-mode="flow">
+      <!-- Station Section (right-pane content embedded in content-pane) -->
+	  <div class="station-section" id="stationSection">
 	    <!-- Panel toggle bar: always visible regardless of panel mode -->
 	    <div class="right-pane-toolbar">
 	      <div class="panel-toggle">
 	        <button id="panelModeStation" class="active" data-tab-scope="station" onclick="setRightPanelMode('station')" title="Station View">Station</button>
 	        <button id="panelModeControl" data-tab-scope="station" onclick="setRightPanelMode('control')" title="Controls">Control</button>
-	        <button id="panelModeFlow" data-tab-scope="chat" onclick="setRightPanelMode('flow')" title="Context Flow">Flow</button>
-	        <button id="panelModePlanning" data-tab-scope="chat" onclick="setRightPanelMode('planning')" title="Planning Panel">Plan</button>
-	        <button id="panelModeChat" data-tab-scope="chat" onclick="toggleChatSplit()" title="Split chat view">+Chat</button>
+	        <button id="panelModeFlow" data-tab-scope="station" onclick="setRightPanelMode('flow')" title="Context Flow">Flow</button>
+	        <button id="panelModePlanning" data-tab-scope="station" onclick="setRightPanelMode('planning')" title="Planning Panel">Plan</button>
+	        <button id="panelModeChat" data-tab-scope="station" onclick="toggleChatSplit()" title="Split chat view">+Chat</button>
 	      </div>
 	    </div>
 	    <div class="ship-panel">
@@ -2018,6 +2114,23 @@ source "$HOME/.cargo/env"
           <div class="code-breadcrumb" id="codeBreadcrumb" title="Active file breadcrumb">No active file</div>
         </div>
 
+        <!-- Engineer Status Strip (Phase 1) -->
+        <div id="engineerStatusStrip" class="engineer-status-strip" onclick="switchControlTab('engineer')" title="Open Station Engineer">
+          <span id="engineerHealthIndicator" class="engineer-health-indicator ok"></span>
+          <span id="engineerStatusText" style="font-size:10px; color:var(--text-secondary);">Healthy</span>
+          <span style="color:var(--border-color);">|</span>
+          <span id="engineerTopAction" style="font-size:10px; color:var(--text-primary); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">No pending actions</span>
+          <span id="engineerAlertBadge" style="display:none; background:#f59e0b; color:#000; font-size:9px; font-weight:700; padding:1px 6px; border-radius:8px; min-width:16px; text-align:center;">0</span>
+          <span style="font-size:10px; color:var(--text-secondary); cursor:pointer;">Open Engineer &rarr;</span>
+        </div>
+
+        <!-- Engineer Inline Prompt (contextual notification bar) -->
+        <div id="engineerPromptBar" class="engineer-prompt-bar" style="display:none;">
+          <span id="engineerPromptIcon" style="font-size:12px;">&#9888;</span>
+          <span id="engineerPromptText" style="flex:1; font-size:10px;"></span>
+          <div id="engineerPromptActions" style="display:flex; gap:4px;"></div>
+        </div>
+
         <div class="control-panel">
           <div class="control-tabs">
             <button class="control-tab-btn active" id="controlTabBtnInfo" onclick="switchControlTab('info')">Info</button>
@@ -2025,11 +2138,16 @@ source "$HOME/.cargo/env"
             <button class="control-tab-btn" id="controlTabBtnOps" onclick="switchControlTab('ops')">Control</button>
             <button class="control-tab-btn" id="controlTabBtnSecurity" onclick="switchControlTab('security')">Security</button>
             <button class="control-tab-btn" id="controlTabBtnQuality" onclick="switchControlTab('quality')">Quality</button>
+            <button class="control-tab-btn" id="controlTabBtnDiagnostics" onclick="switchControlTab('diagnostics')">Diag</button>
             <button class="control-tab-btn" id="controlTabBtnUnity" onclick="switchControlTab('unity')">Unity</button>
+            <button class="control-tab-btn" id="controlTabBtnGameui" onclick="switchControlTab('gameui')">Game UI</button>
+            <button class="control-tab-btn" id="controlTabBtnEngineer" onclick="switchControlTab('engineer')">Engineer</button>
+            <button class="control-tab-btn" id="controlTabBtnComms" onclick="switchControlTab('comms')">Comms</button>
+            <button class="control-tab-btn" id="controlTabBtnInfra" onclick="switchControlTab('infra')">Infra</button>
           </div>
 
           <div class="control-tab-body">
-            <div class="control-tab-panel" id="controlTabInfo">
+            <div class="control-tab-panel" id="controlTabInfo" style="display:flex;">
               <div class="status-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                   <strong style="font-size:12px;">Station Info</strong>
@@ -2114,22 +2232,25 @@ source "$HOME/.cargo/env"
                   <div style="display:flex; gap:6px;">
                     <button class="btn-secondary" onclick="sectorMapScan()" style="padding:4px 10px;">Scan</button>
                     <button class="btn-secondary" onclick="sectorMapValidate()" style="padding:4px 10px;">Validate</button>
+                    <button class="btn-secondary" onclick="sectorConfigOpen()" style="padding:4px 10px;">Configure</button>
                   </div>
                 </div>
                 <div id="sectorMapTierBanner" style="display:none; padding:6px 10px; margin-bottom:6px; border-radius:6px; font-size:11px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); color:#f59e0b;"></div>
-                <canvas id="sectorMapCanvas" style="width:100%; height:280px; border-radius:8px; cursor:default;"></canvas>
-                <div id="sectorMapTooltip" style="position:absolute; pointer-events:none; background:rgba(10,14,23,0.95); border:1px solid rgba(100,200,255,0.3); border-radius:8px; padding:8px 12px; color:#c8d6e5; font-size:11px; display:none; z-index:10; backdrop-filter:blur(8px); max-width:200px;">
-                  <div class="sm-tip-name" style="color:#fff; font-size:13px; font-weight:600; margin-bottom:2px;"></div>
-                  <div class="sm-tip-tech" style="color:#5a7a9a; font-size:10px; margin-bottom:4px;"></div>
-                  <div class="sm-tip-health" style="font-size:10px;"></div>
-                  <div class="sm-tip-deps" style="font-size:9px; color:#5a7a9a; margin-top:3px;"></div>
+                <div class="sector-map-canvas-wrap">
+                  <canvas id="sectorMapCanvas" style="position:absolute; top:0; left:0; width:100%; height:100%; display:block; border-radius:8px; cursor:default;"></canvas>
+                  <div id="sectorMapTooltip" style="position:absolute; pointer-events:none; background:rgba(10,14,23,0.95); border:1px solid rgba(100,200,255,0.3); border-radius:8px; padding:8px 12px; color:#c8d6e5; font-size:11px; display:none; z-index:10; backdrop-filter:blur(8px); max-width:200px;">
+                    <div class="sm-tip-name" style="color:#fff; font-size:13px; font-weight:600; margin-bottom:2px;"></div>
+                    <div class="sm-tip-tech" style="color:#5a7a9a; font-size:10px; margin-bottom:4px;"></div>
+                    <div class="sm-tip-health" style="font-size:10px;"></div>
+                    <div class="sm-tip-deps" style="font-size:9px; color:#5a7a9a; margin-top:3px;"></div>
+                  </div>
                 </div>
               </div>
 
               <div id="sectorDetailCard" style="display:none; margin-top:8px; padding:8px; background:var(--bg-secondary); border-radius:6px; border-left:3px solid #6366f1;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                   <strong style="font-size:12px;" id="sectorDetailName">-</strong>
-                  <button class="btn-secondary" onclick="closeSectorDetail()" style="padding:2px 8px; font-size:10px;">✕</button>
+                  <button class="btn-secondary" onclick="closeSectorDetail()" style="padding:2px 8px; font-size:10px;">\u2190 Back</button>
                 </div>
                 <div id="sectorDetailTech" style="font-size:10px; color:var(--text-secondary); margin-bottom:4px;"></div>
                 <div id="sectorDetailHealth" style="font-size:11px; margin-bottom:4px;"></div>
@@ -2147,6 +2268,7 @@ source "$HOME/.cargo/env"
                 <div style="display:flex; gap:6px; margin-top:6px;">
                   <button class="btn-secondary" onclick="sectorOpenFolder()" style="padding:4px 10px; font-size:10px;">Open Folder</button>
                   <button class="btn-secondary" onclick="sectorOpenAsmdef()" style="padding:4px 10px; font-size:10px;">Open Asmdef</button>
+                  <button class="btn-secondary" onclick="asmdefEditPolicy()" style="padding:4px 10px; font-size:10px;">Edit Policy</button>
                 </div>
               </div>
 
@@ -2155,6 +2277,34 @@ source "$HOME/.cargo/env"
                   <span id="sectorMapSummaryText">Click Scan to load sector data.</span>
                   <span id="sectorMapHealthBadge"></span>
                 </div>
+              </div>
+
+              <!-- Sector Configuration Panel (CF-8) -->
+              <div id="sectorConfigPanel" style="display:none; margin-top:8px; padding:8px; background:var(--bg-secondary); border-radius:6px; border:1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <strong style="font-size:12px;">Sector Configuration</strong>
+                  <button class="btn-secondary" onclick="sectorConfigClose()" style="padding:2px 8px; font-size:10px;">\u2190 Back</button>
+                </div>
+
+                <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+                  <label style="font-size:10px; color:var(--text-secondary); white-space:nowrap;">Template:</label>
+                  <select id="sectorTemplateSelect" onchange="sectorConfigApplyTemplate(this.value)" style="flex:1; background:var(--bg-primary); border:1px solid var(--border-color); color:var(--text-primary); padding:3px 6px; font-size:10px; border-radius:3px;">
+                    <option value="">(custom)</option>
+                  </select>
+                  <button class="btn-secondary" onclick="sectorConfigAutoDetect()" style="padding:3px 8px; font-size:10px; white-space:nowrap;">Auto-Detect</button>
+                </div>
+
+                <div id="sectorConfigList" style="max-height:300px; overflow-y:auto;"></div>
+
+                <button class="btn-secondary" onclick="sectorConfigAdd()" style="margin-top:6px; width:100%; padding:4px; font-size:10px;">+ Add Sector</button>
+
+                <div style="display:flex; gap:6px; margin-top:8px;">
+                  <button class="btn-primary" onclick="sectorConfigSave()" style="flex:1; padding:4px 10px; font-size:10px;">Save Configuration</button>
+                  <button class="btn-secondary" onclick="sectorConfigExport()" style="padding:4px 10px; font-size:10px;">Export</button>
+                  <button class="btn-secondary" onclick="sectorConfigImport()" style="padding:4px 10px; font-size:10px;">Import</button>
+                </div>
+
+                <div id="sectorConfigStatus" style="font-size:10px; color:var(--text-secondary); margin-top:4px;"></div>
               </div>
             </div>
 
@@ -2259,6 +2409,69 @@ source "$HOME/.cargo/env"
                       <button class="btn-secondary" onclick="approvePlanStep()">Run Step</button>
                     </div>
                   </div>
+                </div>
+
+                <!-- Autopilot Control Panel (Phase 3) -->
+                <div id="autopilotPanel" style="margin-top:8px;">
+                  <!-- Session recovery prompt -->
+                  <div id="autopilotSessionPrompt" style="display:none; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:6px; padding:8px; margin-bottom:6px;"></div>
+
+                  <!-- Control bar -->
+                  <div id="autopilotControlBar" style="display:none; flex-direction:column; gap:6px; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:11px; font-weight:600;">Autopilot</span>
+                        <span id="autopilotStatusText" class="autopilot-status-label idle" style="font-size:10px;"></span>
+                      </div>
+                      <div style="display:flex; align-items:center; gap:4px;">
+                        <span id="autopilotStepCounter" style="font-size:9px; color:var(--text-secondary);"></span>
+                        <span id="autopilotAgentLabel" style="font-size:9px; color:var(--text-secondary);"></span>
+                      </div>
+                    </div>
+
+                    <!-- Progress bar -->
+                    <div class="autopilot-progress-track">
+                      <div id="autopilotProgressFill" class="autopilot-progress-fill" style="width:0%;"></div>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div style="display:flex; gap:4px;">
+                      <button id="autopilotPauseBtn" class="btn-secondary" onclick="autopilotPause()" style="display:none; padding:3px 8px; font-size:10px;">Pause</button>
+                      <button id="autopilotResumeBtn" class="btn-primary" onclick="autopilotResume()" style="display:none; padding:3px 8px; font-size:10px;">Resume</button>
+                      <button id="autopilotAbortBtn" class="btn-secondary" onclick="autopilotAbort()" style="display:none; padding:3px 8px; font-size:10px; color:var(--error-text);">Abort</button>
+                    </div>
+
+                    <!-- Error text -->
+                    <div id="autopilotErrorText" style="display:none; font-size:10px; color:var(--error-text); background:var(--error-bg); padding:4px 6px; border-radius:4px;"></div>
+
+                    <!-- Step results list -->
+                    <div id="autopilotStepList" class="autopilot-step-list"></div>
+                  </div>
+
+                  <!-- Config section (collapsed by default) -->
+                  <details style="margin-top:6px;">
+                    <summary style="font-size:10px; color:var(--text-secondary); cursor:pointer;">Autopilot Settings</summary>
+                    <div style="padding:6px 0; display:flex; flex-direction:column; gap:6px;">
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <label style="font-size:10px; color:var(--text-secondary); width:80px;">Error Strategy</label>
+                        <select id="autopilotStrategySelect" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                          <option value="retry">Retry</option>
+                          <option value="skip">Skip</option>
+                          <option value="abort">Abort</option>
+                        </select>
+                      </div>
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <label style="font-size:10px; color:var(--text-secondary); width:80px;">Max Retries</label>
+                        <input id="autopilotRetryInput" type="number" min="0" max="10" value="3" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                      </div>
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <label style="font-size:10px; color:var(--text-secondary); width:80px;">Step Delay</label>
+                        <input id="autopilotDelayInput" type="number" min="0" max="5000" step="100" value="500" style="flex:1; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); padding:2px 4px; font-size:10px; border-radius:3px;">
+                        <span style="font-size:9px; color:var(--text-secondary);">ms</span>
+                      </div>
+                      <button class="btn-secondary" onclick="autopilotUpdateConfig()" style="padding:3px 8px; font-size:10px; align-self:flex-end;">Apply</button>
+                    </div>
+                  </details>
                 </div>
 
                 <div class="diff-summary" id="diffSummary" style="display:none;">
@@ -2374,6 +2587,27 @@ source "$HOME/.cargo/env"
               </div>
             </div>
 
+            <div class="control-tab-panel" id="controlTabDiagnostics" style="display:none;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <strong style="font-size:12px;">Diagnostics</strong>
+                  <span id="diagStatusBadge" style="font-size:10px; color:var(--text-secondary);">No scan</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <select id="diagModeSelect" style="font-size:10px; padding:3px 6px; background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-primary); border-radius:4px;">
+                    <option value="quick">Quick (TS + Lint)</option>
+                    <option value="full">Full (+ Build)</option>
+                  </select>
+                  <button class="btn-secondary" id="diagScanBtn" onclick="runDiagnosticsScan(document.getElementById('diagModeSelect').value)" style="padding:4px 10px;">Scan</button>
+                </div>
+              </div>
+              <div id="diagResultsContainer" style="font-size:11px;">
+                <div style="color:var(--text-secondary); padding:8px; font-size:11px;">
+                  Run diagnostics to check for TypeScript errors, lint issues, and build problems.
+                </div>
+              </div>
+            </div>
+
             <div class="control-tab-panel" id="controlTabUnity" style="display:none;">
               <!-- Coplay MCP Integration - commands sent via chat to Claude -->
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -2405,6 +2639,12 @@ source "$HOME/.cargo/env"
                 </button>
               </div>
 
+              <!-- Build Pipeline (Phase 6.3) -->
+              <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px; padding:4px 8px; background:var(--bg-primary); border-radius:4px; border:1px solid var(--border-color);">
+                <button class="btn-primary" onclick="unityBuildCheck()" style="padding:4px 10px; font-size:11px;">🔨 Build Check</button>
+                <span id="buildStatusIndicator" style="font-size:11px; color:var(--text-secondary);">Not checked</span>
+              </div>
+
               <!-- Last Status Info -->
               <div id="unityLastStatus" style="font-size:11px; color:var(--text-secondary); padding:6px 8px; background:var(--bg-primary); border-radius:4px; margin-bottom:8px;">
                 <div style="margin-bottom:4px;"><strong>Project:</strong> <span id="unityProjectName">-</span></div>
@@ -2432,6 +2672,266 @@ source "$HOME/.cargo/env"
                 Commands are sent to Claude who executes them via Coplay MCP
               </div>
             </div>
+
+            <!-- Game UI Pipeline Tab (Phase 4) -->
+            <div class="control-tab-panel" id="controlTabGameui" style="display:none;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <strong style="font-size:12px;">Game UI Pipeline</strong>
+                  <span id="gameuiStatus" class="gameui-status idle" style="font-size:10px;">Idle</span>
+                </div>
+                <div style="display:flex; gap:4px;">
+                  <button class="btn-secondary" onclick="gameuiRequestState()" style="padding:3px 8px; font-size:10px;">Refresh</button>
+                  <button class="btn-secondary" onclick="gameuiLoadState()" style="padding:3px 8px; font-size:10px;">Load</button>
+                </div>
+              </div>
+
+              <!-- Progress bar -->
+              <div class="gameui-progress-track" style="margin-bottom:8px;">
+                <div id="gameuiProgressFill" class="gameui-progress-fill" style="width:0%;"></div>
+              </div>
+
+              <!-- Stats row -->
+              <div id="gameuiStats" style="display:flex; gap:8px; font-size:9px; color:var(--text-secondary); margin-bottom:8px;"></div>
+
+              <!-- Phase selector -->
+              <div style="margin-bottom:8px;">
+                <label style="font-size:10px; color:var(--text-secondary);">Phase:</label>
+                <span id="gameuiCurrentPhase" style="font-size:10px; font-weight:600; margin-left:4px;">Theme Setup</span>
+                <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
+                  <button class="btn-secondary" onclick="gameuiRunPhase('theme')" style="padding:2px 6px; font-size:9px;">Theme</button>
+                  <button class="btn-secondary" onclick="gameuiRunPhase('primitives')" style="padding:2px 6px; font-size:9px;">Primitives</button>
+                  <button class="btn-secondary" onclick="gameuiRunPhase('system-screens')" style="padding:2px 6px; font-size:9px;">System</button>
+                  <button class="btn-secondary" onclick="gameuiRunPhase('menu')" style="padding:2px 6px; font-size:9px;">Menu</button>
+                  <button class="btn-secondary" onclick="gameuiRunPhase('hud')" style="padding:2px 6px; font-size:9px;">HUD</button>
+                  <button class="btn-secondary" onclick="gameuiRunPhase('panels')" style="padding:2px 6px; font-size:9px;">Panels</button>
+                  <button class="btn-secondary" onclick="gameuiRunPhase('dialogs-map')" style="padding:2px 6px; font-size:9px;">Dialogs</button>
+                </div>
+                <div style="display:flex; gap:4px; margin-top:4px;">
+                  <button class="btn-primary" onclick="gameuiRunAll()" style="padding:3px 10px; font-size:10px;">Run All Phases</button>
+                  <button class="btn-secondary" onclick="gameuiStop()" style="padding:3px 8px; font-size:10px; color:var(--error-text);">Stop</button>
+                  <button class="btn-secondary" onclick="gameuiSaveState()" style="padding:3px 8px; font-size:10px;">Save</button>
+                </div>
+              </div>
+
+              <!-- Category breakdown -->
+              <div id="gameuiCategoryBreakdown" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;"></div>
+
+              <!-- Theme section -->
+              <details style="margin-bottom:8px;">
+                <summary style="font-size:10px; color:var(--text-secondary); cursor:pointer;">Themes</summary>
+                <div id="gameuiThemeList" style="margin-top:4px;"></div>
+                <div style="margin-top:4px; display:flex; gap:4px;">
+                  <button class="btn-secondary" onclick="gameuiRequestThemes()" style="padding:2px 6px; font-size:9px;">Refresh</button>
+                  <button class="btn-secondary" onclick="gameuiGenerateThemeUSS()" style="padding:2px 6px; font-size:9px;">Generate USS</button>
+                </div>
+              </details>
+
+              <!-- Component catalog -->
+              <details open style="margin-bottom:8px;">
+                <summary style="font-size:10px; color:var(--text-secondary); cursor:pointer;">Components (<span id="gameuiComponentCount">0</span>)</summary>
+                <div style="margin-top:4px; display:flex; gap:4px; margin-bottom:4px;">
+                  <button class="btn-secondary" onclick="gameuiRequestCatalog()" style="padding:2px 6px; font-size:9px;">All</button>
+                  <button class="btn-secondary" onclick="gameuiFilterCategory('primitive')" style="padding:2px 6px; font-size:9px;">Primitives</button>
+                  <button class="btn-secondary" onclick="gameuiFilterCategory('system')" style="padding:2px 6px; font-size:9px;">System</button>
+                  <button class="btn-secondary" onclick="gameuiFilterCategory('hud')" style="padding:2px 6px; font-size:9px;">HUD</button>
+                </div>
+                <div id="gameuiComponentList" class="gameui-component-list"></div>
+              </details>
+
+              <!-- Event feed -->
+              <details>
+                <summary style="font-size:10px; color:var(--text-secondary); cursor:pointer;">Event Log</summary>
+                <div id="gameuiEventFeed" class="gameui-event-feed" style="margin-top:4px; max-height:150px; overflow-y:auto;"></div>
+              </details>
+            </div>
+
+            <!-- Engineer Tab (Phase 1: Station Engineer) -->
+            <div class="control-tab-panel" id="controlTabEngineer" style="display:none;">
+
+              <!-- Ship Status Section -->
+              <div class="engineer-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <strong style="font-size:12px;">Ship Status</strong>
+                  <button class="btn-secondary" onclick="engineerRefresh()" style="padding:4px 10px; font-size:10px;">Rescan</button>
+                </div>
+                <div id="engineerShipStatus" class="engineer-ship-status">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="engineerHealthBig" class="engineer-health-big ok" style="font-size:14px; font-weight:700;"></span>
+                    <span id="engineerWarningCount" style="font-size:11px; color:var(--text-secondary);"></span>
+                  </div>
+                  <div id="engineerWarningList" style="margin-top:6px; font-size:10px; color:var(--text-secondary);"></div>
+                </div>
+                <div id="engineerNoSectors" style="display:none; font-size:10px; color:#f59e0b; padding:6px; background:rgba(245,158,11,0.08); border-radius:4px; margin-top:4px;">
+                  Configure sectors to enable full analysis.
+                  <button class="btn-secondary" onclick="switchControlTab('sectors'); sectorConfigOpen();" style="margin-left:6px; padding:2px 6px; font-size:10px;">Configure Sectors</button>
+                </div>
+              </div>
+
+              <!-- Suggestions Section -->
+              <div class="engineer-section" style="margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <strong style="font-size:12px;">Top Suggestions</strong>
+                  <label style="font-size:10px; color:var(--text-secondary); display:flex; align-items:center; gap:4px; cursor:pointer;">
+                    <input type="checkbox" id="engineerShowAll" onchange="engineerToggleShowAll(this.checked)" />
+                    Show all
+                  </label>
+                </div>
+                <div id="engineerSuggestionsList" class="engineer-suggestions-list"></div>
+                <div id="engineerSuggestionsEmpty" style="font-size:10px; color:var(--text-secondary); text-align:center; padding:12px;">
+                  Click "Rescan" to analyze project health and generate suggestions.
+                </div>
+              </div>
+
+              <!-- Delegations Section -->
+              <div class="engineer-section" style="margin-top:8px;">
+                <strong style="font-size:12px; display:block; margin-bottom:6px;">Delegate To</strong>
+                <div class="engineer-delegate-grid">
+                  <button class="btn-secondary engineer-delegate-btn" onclick="engineerDelegate('architect')" title="Architecture decisions, cross-cutting design">Architect</button>
+                  <button class="btn-secondary engineer-delegate-btn" onclick="engineerDelegate('modularity-lead')" title="Decoupling, dependency hygiene, duplication">Modularity Lead</button>
+                  <button class="btn-secondary engineer-delegate-btn" onclick="engineerDelegate('verifier')" title="Tests, gates, compliance checks">Verifier</button>
+                  <button class="btn-secondary engineer-delegate-btn" onclick="engineerDelegate('doc-officer')" title="Docs freshness, template fill, sync">Doc Officer</button>
+                  <button class="btn-secondary engineer-delegate-btn" onclick="engineerDelegate('planner')" title="Task breakdown, sequencing, priorities">Planner</button>
+                  <button class="btn-secondary engineer-delegate-btn" onclick="engineerDelegate('release-captain')" title="Packaging, versioning, release readiness">Release Captain</button>
+                </div>
+              </div>
+
+              <!-- History Section -->
+              <div class="engineer-section" style="margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <strong style="font-size:12px;">History</strong>
+                  <button class="btn-secondary" onclick="engineerRequestHistory()" style="padding:2px 8px; font-size:10px;">Refresh</button>
+                </div>
+                <div id="engineerHistoryList" class="engineer-history-list">
+                  <div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:8px;">No history yet.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Comms Array (Phase 7) -->
+            <div class="control-tab-panel" id="controlTabComms" style="display:none;">
+
+              <!-- Tier Section -->
+              <div class="comms-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <strong style="font-size:12px;">Comms Tier</strong>
+                  <select id="commsTierSelect" onchange="commsSetTier(this.value)" style="padding:2px 6px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:3px;">
+                    <option value="1">Tier 1 — API Testing</option>
+                    <option value="2">Tier 2 — Vulnerability Scanning</option>
+                    <option value="3">Tier 3 — Full Pentest</option>
+                  </select>
+                </div>
+                <div style="background:var(--bg-secondary); border-radius:4px; height:6px; overflow:hidden;">
+                  <div id="commsTierBar" style="height:100%; width:33%; background:#3b82f6; border-radius:4px; transition:width 0.3s, background 0.3s;"></div>
+                </div>
+                <div id="commsTierLabel" style="font-size:10px; color:#3b82f6; margin-top:4px;">Tier 1 — API Testing</div>
+              </div>
+
+              <!-- Services Section -->
+              <div class="comms-section" style="margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <strong style="font-size:12px;">MCP Services</strong>
+                  <button class="btn-secondary" onclick="commsCheckServices()" style="padding:2px 8px; font-size:10px;">Check</button>
+                </div>
+                <div id="commsServicesList" style="display:flex; flex-direction:column; gap:4px;">
+                  <div class="comms-service-row"><span>📬 Postman</span><span style="font-size:10px; color:#6b7280;">🔴 Not checked</span></div>
+                  <div class="comms-service-row"><span>⚡ ZAP</span><span style="font-size:10px; color:#6b7280;">🔴 Not checked</span></div>
+                  <div class="comms-service-row"><span>🔓 Pentest</span><span style="font-size:10px; color:#6b7280;">🔴 Not checked</span></div>
+                </div>
+              </div>
+
+              <!-- Quick Scan Section -->
+              <div class="comms-section" style="margin-top:8px;">
+                <strong style="font-size:12px; display:block; margin-bottom:6px;">Run Scan</strong>
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                  <input type="text" id="commsScanTarget" placeholder="https://api.example.com" style="padding:4px 8px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px; width:100%; box-sizing:border-box;" />
+                  <div style="display:flex; gap:4px;">
+                    <select id="commsScanProfileSelect" style="flex:1; padding:4px 6px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px;">
+                      <option value="apiTest">API Test</option>
+                      <option value="gameBackend">Game Backend Scan (Tier 2+)</option>
+                      <option value="owaspTop10">OWASP Top 10 (Tier 2+)</option>
+                      <option value="antiCheat">Anti-Cheat Audit (Tier 2+)</option>
+                      <option value="fullPentest">Full Pentest (Tier 3)</option>
+                    </select>
+                    <button class="btn-primary" onclick="commsStartScan()" style="padding:4px 12px; font-size:10px; white-space:nowrap;">Scan</button>
+                  </div>
+                  <div style="display:flex; gap:8px; align-items:center;">
+                    <span id="commsScanStatus" style="font-size:10px; color:var(--text-secondary);"></span>
+                    <span id="commsScanIndicator" style="font-size:10px; color:#f59e0b; display:none;"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Recent Scans Section -->
+              <div class="comms-section" style="margin-top:8px;">
+                <strong style="font-size:12px; display:block; margin-bottom:6px;">Recent Scans</strong>
+                <div id="commsRecentScansList" style="max-height:250px; overflow-y:auto;">
+                  <div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:12px;">No scans yet. Enter a target URL and run a scan.</div>
+                </div>
+                <!-- Scan Detail View (hidden by default) -->
+                <div id="commsScanDetail" style="display:none;"></div>
+              </div>
+
+            </div>
+
+            <!-- Infra / Ops Array (Phase 8) -->
+            <div class="control-tab-panel" id="controlTabInfra" style="display:none;">
+
+              <!-- Server List -->
+              <div class="ops-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <strong style="font-size:12px;">Servers</strong>
+                  <button class="btn-secondary" onclick="opsRequestState()" style="padding:2px 8px; font-size:10px;">Refresh</button>
+                </div>
+                <div id="opsServerList" style="max-height:200px; overflow-y:auto;">
+                  <div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:12px;">No servers configured. Click "+ Add Server" to get started.</div>
+                </div>
+              </div>
+
+              <!-- Add Server Form -->
+              <div class="ops-section" style="margin-top:8px;">
+                <strong style="font-size:12px; display:block; margin-bottom:6px;">+ Add Server</strong>
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                  <input type="text" id="opsServerName" placeholder="Server name (e.g. game-server-1)" style="padding:4px 8px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px; width:100%; box-sizing:border-box;" />
+                  <div style="display:flex; gap:4px;">
+                    <input type="text" id="opsServerHost" placeholder="hostname or IP" style="flex:1; padding:4px 8px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px;" />
+                    <input type="text" id="opsServerUser" placeholder="user" value="root" style="width:60px; padding:4px 8px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px;" />
+                  </div>
+                  <div style="display:flex; gap:4px; align-items:center;">
+                    <button class="btn-primary" onclick="opsAddServer()" style="padding:4px 12px; font-size:10px;">Add</button>
+                    <span id="opsAddStatus" style="font-size:10px; color:var(--text-secondary);"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Server Detail -->
+              <div class="ops-section" style="margin-top:8px;">
+                <div id="opsServerDetail">
+                  <div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:8px;">Select a server to view details.</div>
+                </div>
+              </div>
+
+              <!-- Command Execution -->
+              <div class="ops-section" style="margin-top:8px;">
+                <strong style="font-size:12px; display:block; margin-bottom:6px;">Execute Command</strong>
+                <div style="display:flex; gap:4px;">
+                  <input type="text" id="opsCommandInput" placeholder="e.g. ufw status, systemctl status game-server" style="flex:1; padding:4px 8px; font-size:10px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px;" onkeydown="if(event.key==='Enter'){opsExecuteActiveCommand();}" />
+                  <label style="font-size:9px; display:flex; align-items:center; gap:2px; white-space:nowrap;"><input type="checkbox" id="opsCommandSudo" /> sudo</label>
+                  <button class="btn-primary" onclick="opsExecuteActiveCommand()" style="padding:4px 10px; font-size:10px;">Run</button>
+                </div>
+                <div id="opsCommandOutput" style="display:none; margin-top:4px;"></div>
+              </div>
+
+              <!-- Recent Operations -->
+              <div class="ops-section" style="margin-top:8px;">
+                <strong style="font-size:12px; display:block; margin-bottom:6px;">Recent Operations</strong>
+                <div id="opsRecentOpsList" style="max-height:180px; overflow-y:auto;">
+                  <div style="font-size:10px; color:var(--text-secondary); text-align:center; padding:8px;">No operations yet.</div>
+                </div>
+              </div>
+
+            </div>
+
           </div>
 
         <!-- Planning panel (hidden, rendered dynamically by planningPanel.ts) -->
@@ -2498,7 +2998,14 @@ source "$HOME/.cargo/env"
           </div>
         </div>
 
-	  </div><!-- End right-pane -->
+	  </div><!-- End station-section -->
+
+      </div><!-- End content-pane -->
+
+      <!-- Single-panel mode toggle FAB (visible when viewport too narrow for side-by-side) -->
+      <button class="panel-toggle-fab" id="panelToggleFab" onclick="toggleSinglePanelView()" title="Toggle Chat / Content">&#x21C4;</button>
+
+	  <div class="splitter" id="mainSplitter" title="Drag to resize" style="display:none;"></div>
 	</div><!-- End main-split -->
 
   </div><!-- End content -->

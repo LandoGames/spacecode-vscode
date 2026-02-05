@@ -232,11 +232,11 @@ export const SUPPRESSION_PATTERNS = [
 ];
 
 /**
- * Handoff request to Gears (Engineer) for fixing
+ * Handoff request to QA Engineer for fixing
  */
 export interface SecurityFixHandoff {
   finding: SecurityFinding;
-  targetPersona: 'gears';
+  targetPersona: 'qa-engineer';
   context: string;
   suggestedApproach: string;
   priority: 'immediate' | 'soon' | 'backlog';

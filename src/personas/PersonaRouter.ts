@@ -7,33 +7,33 @@ import { AgentId } from '../agents/types';
  *
  * Tab          Panel/Mode          Persona
  * ─────────────────────────────────────────
- * chat         (any)               nova
- * station      (any)               gears
- * dashboard    docs                index
- * dashboard    tickets             triage
- * dashboard    db                  vault
- * dashboard    art / settings      palette
- * agents       (any)               nova (default)
- * skills       (any)               nova (default)
+ * chat         (any)               lead-engineer
+ * station      (any)               qa-engineer
+ * dashboard    docs                technical-writer
+ * dashboard    tickets             issue-triager
+ * dashboard    db                  database-engineer
+ * dashboard    art / settings      art-director
+ * agents       (any)               lead-engineer (default)
+ * skills       (any)               lead-engineer (default)
  */
 
 type TabName = 'chat' | 'station' | 'dashboard' | 'agents' | 'skills';
 type DashboardSubtab = 'docs' | 'tickets' | 'db' | 'mcp' | 'logs' | 'settings' | 'info';
 
 const DASHBOARD_PERSONA_MAP: Record<string, AgentId> = {
-  docs: 'index',
-  tickets: 'triage',
-  db: 'vault',
-  settings: 'palette',
-  art: 'palette',
-  // mcp, logs, info don't have dedicated personas — fall back to nova
+  docs: 'technical-writer',
+  tickets: 'issue-triager',
+  db: 'database-engineer',
+  settings: 'art-director',
+  art: 'art-director',
+  // mcp, logs, info don't have dedicated personas — fall back to lead-engineer
 };
 
 const TAB_PERSONA_MAP: Record<string, AgentId> = {
-  chat: 'nova',
-  station: 'gears',
-  agents: 'nova',
-  skills: 'nova',
+  chat: 'lead-engineer',
+  station: 'qa-engineer',
+  agents: 'lead-engineer',
+  skills: 'lead-engineer',
 };
 
 /**
@@ -44,7 +44,7 @@ export function getPersonaForContext(
   dashboardSubtab?: string,
 ): AgentId {
   if (tab === 'dashboard' && dashboardSubtab) {
-    return DASHBOARD_PERSONA_MAP[dashboardSubtab] || 'nova';
+    return DASHBOARD_PERSONA_MAP[dashboardSubtab] || 'lead-engineer';
   }
-  return TAB_PERSONA_MAP[tab] || 'nova';
+  return TAB_PERSONA_MAP[tab] || 'lead-engineer';
 }

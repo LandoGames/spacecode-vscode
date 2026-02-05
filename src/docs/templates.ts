@@ -200,13 +200,399 @@ export const README_TEMPLATE: DocTemplate = {
 };
 
 /**
+ * Art Bible Template
+ */
+export const ART_BIBLE_TEMPLATE: DocTemplate = {
+  id: 'art-bible-standard',
+  type: 'art_bible',
+  name: 'Art Bible',
+  description: 'Visual style guide and art direction reference',
+  sections: [
+    {
+      id: 'vision',
+      title: 'Art Vision',
+      required: true,
+      description: 'Overall visual direction and style goals',
+      subsections: [
+        { id: 'style', title: 'Art Style', required: true, description: 'Core art style (e.g., stylized, realistic, pixel art)' },
+        { id: 'mood', title: 'Mood & Atmosphere', required: true, description: 'Emotional tone conveyed through visuals' },
+        { id: 'references', title: 'Reference Board', required: false, description: 'Visual references and inspirations' }
+      ]
+    },
+    {
+      id: 'characters',
+      title: 'Character Art',
+      required: false,
+      description: 'Character design guidelines and proportions'
+    },
+    {
+      id: 'environments',
+      title: 'Environment Art',
+      required: false,
+      description: 'Level and world art direction'
+    },
+    {
+      id: 'ui-art',
+      title: 'UI Art Style',
+      required: false,
+      description: 'Interface visual language'
+    },
+    {
+      id: 'vfx',
+      title: 'VFX & Particles',
+      required: false,
+      description: 'Visual effects style guide'
+    },
+    {
+      id: 'technical-art',
+      title: 'Technical Art Specs',
+      required: false,
+      description: 'Poly budgets, texture sizes, shader guidelines'
+    }
+  ],
+  variables: [
+    { name: 'GAME_NAME', description: 'Name of the game', required: true },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
+ * Narrative Bible Template
+ */
+export const NARRATIVE_TEMPLATE: DocTemplate = {
+  id: 'narrative-standard',
+  type: 'narrative',
+  name: 'Narrative Bible',
+  description: 'Story, characters, and world lore reference',
+  sections: [
+    {
+      id: 'world',
+      title: 'World & Setting',
+      required: true,
+      description: 'World building and setting details',
+      subsections: [
+        { id: 'history', title: 'World History', required: true, description: 'Timeline and key events' },
+        { id: 'geography', title: 'Geography & Locations', required: false, description: 'Key locations and their significance' },
+        { id: 'factions', title: 'Factions & Organizations', required: false, description: 'Groups and power structures' }
+      ]
+    },
+    {
+      id: 'characters',
+      title: 'Characters',
+      required: true,
+      description: 'Main and supporting character profiles',
+      subsections: [
+        { id: 'protagonist', title: 'Protagonist', required: true, description: 'Player character details' },
+        { id: 'supporting', title: 'Supporting Cast', required: false, description: 'Key NPCs and allies' },
+        { id: 'antagonists', title: 'Antagonists', required: false, description: 'Villains and opposing forces' }
+      ]
+    },
+    {
+      id: 'story',
+      title: 'Story Outline',
+      required: true,
+      description: 'Main narrative arc and plot beats'
+    },
+    {
+      id: 'dialogue',
+      title: 'Dialogue Guidelines',
+      required: false,
+      description: 'Tone, voice, and dialogue conventions'
+    },
+    {
+      id: 'lore',
+      title: 'Lore & Mythology',
+      required: false,
+      description: 'Background lore and mythos'
+    }
+  ],
+  variables: [
+    { name: 'GAME_NAME', description: 'Name of the game', required: true },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
+ * UI/UX Specification Template
+ */
+export const UIUX_TEMPLATE: DocTemplate = {
+  id: 'uiux-standard',
+  type: 'uiux',
+  name: 'UI/UX Specification',
+  description: 'User interface and experience design document',
+  sections: [
+    {
+      id: 'principles',
+      title: 'UX Principles',
+      required: true,
+      description: 'Core UX design principles and goals',
+      subsections: [
+        { id: 'accessibility', title: 'Accessibility', required: true, description: 'Accessibility requirements and standards' },
+        { id: 'platforms', title: 'Platform Guidelines', required: true, description: 'Platform-specific UI conventions' }
+      ]
+    },
+    {
+      id: 'flows',
+      title: 'User Flows',
+      required: true,
+      description: 'Key user journeys and screen flows'
+    },
+    {
+      id: 'screens',
+      title: 'Screen Inventory',
+      required: true,
+      description: 'All screens/menus with descriptions',
+      subsections: [
+        { id: 'main-menu', title: 'Main Menu', required: true, description: 'Main menu layout and navigation' },
+        { id: 'hud', title: 'HUD / In-Game UI', required: true, description: 'Heads-up display elements' },
+        { id: 'settings', title: 'Settings', required: false, description: 'Options and settings screens' }
+      ]
+    },
+    {
+      id: 'components',
+      title: 'UI Components',
+      required: false,
+      description: 'Reusable UI component library'
+    },
+    {
+      id: 'animations',
+      title: 'UI Animations',
+      required: false,
+      description: 'Transition and animation specifications'
+    }
+  ],
+  variables: [
+    { name: 'GAME_NAME', description: 'Name of the game', required: true },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
+ * Economy Design Template
+ */
+export const ECONOMY_TEMPLATE: DocTemplate = {
+  id: 'economy-standard',
+  type: 'economy',
+  name: 'Economy Design',
+  description: 'Game economy, currencies, and balance document',
+  sections: [
+    {
+      id: 'overview',
+      title: 'Economy Overview',
+      required: true,
+      description: 'High-level economy goals and philosophy',
+      subsections: [
+        { id: 'currencies', title: 'Currencies', required: true, description: 'All currency types and their purposes' },
+        { id: 'sources-sinks', title: 'Sources & Sinks', required: true, description: 'Where currency enters and exits the economy' }
+      ]
+    },
+    {
+      id: 'progression',
+      title: 'Progression Economy',
+      required: true,
+      description: 'XP, leveling, and unlock curves'
+    },
+    {
+      id: 'items',
+      title: 'Item Economy',
+      required: false,
+      description: 'Item rarities, crafting costs, and pricing'
+    },
+    {
+      id: 'monetization',
+      title: 'Monetization',
+      required: false,
+      description: 'IAP pricing, premium currency, and value propositions'
+    },
+    {
+      id: 'balance',
+      title: 'Balance Targets',
+      required: false,
+      description: 'Target session earnings, time-to-unlock, and KPIs'
+    }
+  ],
+  variables: [
+    { name: 'GAME_NAME', description: 'Name of the game', required: true },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
+ * Audio Design Template
+ */
+export const AUDIO_TEMPLATE: DocTemplate = {
+  id: 'audio-standard',
+  type: 'audio',
+  name: 'Audio Design',
+  description: 'Sound design and music direction document',
+  sections: [
+    {
+      id: 'vision',
+      title: 'Audio Vision',
+      required: true,
+      description: 'Overall audio direction and sonic identity',
+      subsections: [
+        { id: 'style', title: 'Music Style', required: true, description: 'Genre, instruments, and mood of the soundtrack' },
+        { id: 'sfx-style', title: 'SFX Style', required: true, description: 'Sound effect tone and fidelity targets' }
+      ]
+    },
+    {
+      id: 'music',
+      title: 'Music Design',
+      required: true,
+      description: 'Soundtrack structure and adaptive music system',
+      subsections: [
+        { id: 'tracks', title: 'Track List', required: true, description: 'Required music tracks by context' },
+        { id: 'adaptive', title: 'Adaptive System', required: false, description: 'Dynamic music layering and transitions' }
+      ]
+    },
+    {
+      id: 'sfx',
+      title: 'Sound Effects',
+      required: true,
+      description: 'SFX categories and required sounds'
+    },
+    {
+      id: 'voice',
+      title: 'Voice & Dialogue',
+      required: false,
+      description: 'Voice acting direction and implementation'
+    },
+    {
+      id: 'technical',
+      title: 'Technical Audio',
+      required: false,
+      description: 'Audio middleware, format specs, and performance budgets'
+    }
+  ],
+  variables: [
+    { name: 'GAME_NAME', description: 'Name of the game', required: true },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
+ * Test Plan Template
+ */
+export const TEST_PLAN_TEMPLATE: DocTemplate = {
+  id: 'test-plan-standard',
+  type: 'test_plan',
+  name: 'Test Plan',
+  description: 'Testing strategy, test cases, and quality assurance plan',
+  sections: [
+    {
+      id: 'strategy',
+      title: 'Test Strategy',
+      required: true,
+      description: 'Overall testing approach and goals',
+      subsections: [
+        { id: 'scope', title: 'Scope', required: true, description: 'What will and will not be tested' },
+        { id: 'types', title: 'Test Types', required: true, description: 'Unit, integration, E2E, performance, etc.' },
+        { id: 'tools', title: 'Tools & Frameworks', required: true, description: 'Testing tools and infrastructure' }
+      ]
+    },
+    {
+      id: 'cases',
+      title: 'Test Cases',
+      required: true,
+      description: 'Critical test scenarios and acceptance criteria',
+      subsections: [
+        { id: 'gameplay', title: 'Gameplay Tests', required: true, description: 'Core loop and mechanics tests' },
+        { id: 'performance', title: 'Performance Tests', required: false, description: 'FPS, memory, load time targets' },
+        { id: 'regression', title: 'Regression Suite', required: false, description: 'Automated regression test cases' }
+      ]
+    },
+    {
+      id: 'automation',
+      title: 'Test Automation',
+      required: false,
+      description: 'CI/CD integration and automated test pipelines'
+    },
+    {
+      id: 'platforms',
+      title: 'Platform Testing',
+      required: false,
+      description: 'Platform-specific testing requirements'
+    },
+    {
+      id: 'release',
+      title: 'Release Criteria',
+      required: false,
+      description: 'Go/no-go criteria for release'
+    }
+  ],
+  variables: [
+    { name: 'PROJECT_NAME', description: 'Name of the project', required: true },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
+ * Level Brief Template
+ */
+export const LEVEL_BRIEF_TEMPLATE: DocTemplate = {
+  id: 'level-brief-standard',
+  type: 'level_brief',
+  name: 'Level Brief',
+  description: 'Level design specification and layout document',
+  sections: [
+    {
+      id: 'overview',
+      title: 'Level Overview',
+      required: true,
+      description: 'Level concept, theme, and narrative context',
+      subsections: [
+        { id: 'objectives', title: 'Objectives', required: true, description: 'Player goals and win/lose conditions' },
+        { id: 'flow', title: 'Level Flow', required: true, description: 'Pacing and progression through the level' }
+      ]
+    },
+    {
+      id: 'layout',
+      title: 'Layout & Geometry',
+      required: true,
+      description: 'Map layout, key areas, and spatial design'
+    },
+    {
+      id: 'encounters',
+      title: 'Encounters & Gameplay',
+      required: false,
+      description: 'Enemy placement, puzzles, and interactive elements'
+    },
+    {
+      id: 'art-direction',
+      title: 'Art Direction',
+      required: false,
+      description: 'Visual theme, lighting, and atmosphere for this level'
+    },
+    {
+      id: 'metrics',
+      title: 'Design Metrics',
+      required: false,
+      description: 'Target completion time, difficulty, and replay value'
+    }
+  ],
+  variables: [
+    { name: 'LEVEL_NAME', description: 'Name of the level', required: true },
+    { name: 'GAME_NAME', description: 'Name of the game', required: false },
+    { name: 'VERSION', description: 'Document version', defaultValue: '1.0', required: false }
+  ]
+};
+
+/**
  * All templates
  */
 export const DOC_TEMPLATES: DocTemplate[] = [
   GDD_TEMPLATE,
   SA_TEMPLATE,
   TDD_TEMPLATE,
-  README_TEMPLATE
+  README_TEMPLATE,
+  ART_BIBLE_TEMPLATE,
+  NARRATIVE_TEMPLATE,
+  UIUX_TEMPLATE,
+  ECONOMY_TEMPLATE,
+  AUDIO_TEMPLATE,
+  TEST_PLAN_TEMPLATE,
+  LEVEL_BRIEF_TEMPLATE
 ];
 
 /**
@@ -284,6 +670,14 @@ export const DEFAULT_DOCS: Omit<DocDefinition, 'id' | 'status'>[] = [
     templateFile: 'TEST_PLAN_TEMPLATE.md',
     defaultPath: 'docs/TEST_PLAN.md',
     priority: 'recommended'
+  },
+  {
+    type: 'level_brief',
+    name: 'Level Brief',
+    description: 'Level design specification',
+    templateFile: 'LEVEL_BRIEF_TEMPLATE.md',
+    defaultPath: 'docs/LEVEL_BRIEF.md',
+    priority: 'optional'
   },
   {
     type: 'readme',

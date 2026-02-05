@@ -1,0 +1,60 @@
+// @ts-nocheck
+
+import { logger } from '../services/logService';
+import { handleDocsMessage } from './handlers/docs';
+import { handleAutoexecuteMessage } from './handlers/autoexecute';
+import { handleShipMessage } from './handlers/ship';
+import { handleAsmdefMessage } from './handlers/asmdef';
+import { handlePlanMessage } from './handlers/plans';
+import { handleTicketMessage } from './handlers/tickets';
+import { handleUnityMessage } from './handlers/unity';
+import { handleGitMessage } from './handlers/git';
+import { handleMcpMessage } from './handlers/mcp';
+import { handleKbMessage } from './handlers/kb';
+import { handleVoiceMessage } from './handlers/voice';
+import { handleSettingsMessage } from './handlers/settings';
+import { handleWorkflowMessage } from './handlers/workflows';
+import { handleAssistantMessage } from './handlers/assistant';
+import { handleSenseiMessage } from './handlers/sensei';
+import { handleShipActionsMessage } from './handlers/shipActions';
+import { handleMiscMessage } from './handlers/misc';
+import { handleDashboardMessage } from './handlers/dashboard';
+import { handlePlanningMessage } from './handlers/planning';
+import { handleSecurityMessage } from './handlers/security';
+import { handleQualityMessage } from './handlers/quality';
+import { handleHandoffMessage } from './handlers/handoff';
+import { handleAutosolveMessage } from './handlers/autosolve';
+import { handleMemoryMessage } from './handlers/memory';
+import { handleAgentSkillsMessage } from './handlers/agentSkills';
+import { handleExplorerMessage } from './handlers/explorer';
+
+export async function handleMainPanelMessage(panel: any, message: any): Promise<void> {
+    if (await handleExplorerMessage(panel, message)) return;
+    if (await handleDashboardMessage(panel, message)) return;
+    if (await handleHandoffMessage(panel, message)) return;
+    if (await handleSecurityMessage(panel, message)) return;
+    if (await handleQualityMessage(panel, message)) return;
+    if (await handleDocsMessage(panel, message)) return;
+    if (await handleAgentSkillsMessage(panel, message)) return;
+    if (await handleMemoryMessage(panel, message)) return;
+    if (await handleAutosolveMessage(panel, message)) return;
+    if (await handleAutoexecuteMessage(panel, message)) return;
+    if (await handleShipMessage(panel, message)) return;
+    if (await handleAsmdefMessage(panel, message)) return;
+    if (await handlePlanningMessage(panel, message)) return;
+    if (await handlePlanMessage(panel, message)) return;
+    if (await handleTicketMessage(panel, message)) return;
+    if (await handleUnityMessage(panel, message)) return;
+    if (await handleGitMessage(panel, message)) return;
+    if (await handleMcpMessage(panel, message)) return;
+    if (await handleKbMessage(panel, message)) return;
+    if (await handleVoiceMessage(panel, message)) return;
+    if (await handleSettingsMessage(panel, message)) return;
+    if (await handleWorkflowMessage(panel, message)) return;
+    if (await handleAssistantMessage(panel, message)) return;
+    if (await handleSenseiMessage(panel, message)) return;
+    if (await handleShipActionsMessage(panel, message)) return;
+    if (await handleMiscMessage(panel, message)) return;
+
+    logger.warn(`[MainPanelRouter] Unhandled message type: ${message?.type}`);
+  }

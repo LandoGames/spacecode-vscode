@@ -1,0 +1,33 @@
+{
+  "scannedAt": "2026-02-04T23:56:25.077Z",
+  "results": [
+    {
+      "id": "gpt-5.2",
+      "url": "https://platform.openai.com/docs/models/gpt-5.2",
+      "error": "Error: HTTP 403 for https://platform.openai.com/docs/models/gpt-5.2"
+    },
+    {
+      "id": "gpt-5.2-pro",
+      "url": "https://platform.openai.com/docs/models/gpt-5.2-pro",
+      "error": "Error: HTTP 403 for https://platform.openai.com/docs/models/gpt-5.2-pro"
+    },
+    {
+      "id": "gpt-5.2-codex",
+      "url": "https://platform.openai.com/docs/models/gpt-5.2",
+      "error": "Error: HTTP 403 for https://platform.openai.com/docs/models/gpt-5.2"
+    },
+    {
+      "id": "gpt-5-mini",
+      "url": "https://platform.openai.com/docs/models",
+      "error": "Error: HTTP 403 for https://platform.openai.com/docs/models"
+    },
+    {
+      "id": "gpt-5-codex-mini",
+      "url": "https://developers.openai.com/codex/changelog",
+      "input": null,
+      "output": null,
+      "contextWindow": null,
+      "maxOutput": null
+    }
+  ]
+}

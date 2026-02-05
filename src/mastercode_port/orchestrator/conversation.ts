@@ -7,6 +7,7 @@
 import * as vscode from 'vscode';
 import { AIProvider, AIMessage, AIResponse } from '../providers/base';
 import { EventEmitter } from 'events';
+import { getModelLabel } from '../config/models';
 
 export type ConversationMode = 'code-review' | 'debate' | 'collaborate' | 'single';
 export type ResponseStyle = 'concise' | 'detailed';
@@ -115,10 +116,24 @@ export class ConversationOrchestrator extends EventEmitter {
   }
 
   /**
+   * Get the display label for a provider's current model
+   */
+  private getProviderModelLabel(provider: 'claude' | 'gpt'): string {
+    const prov = provider === 'claude' ? this.claudeProvider : this.gptProvider;
+    if (prov && 'getModel' in prov) {
+      const modelId = (prov as any).getModel();
+      if (modelId) {
+        return getModelLabel(modelId);
+      }
+    }
+    return provider === 'claude' ? 'Claude' : 'GPT';
+  }
+
+  /**
    * Estimate token count for a string (rough approximation)
    */
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / CHARS_PER_TOKEN);
+    return Math.ceil((text || '').length / CHARS_PER_TOKEN);
   }
 
   /**
@@ -126,8 +141,8 @@ export class ConversationOrchestrator extends EventEmitter {
    */
   estimateHistoryTokens(history: Array<{ role: string; content: string }>): number {
     let total = 0;
-    for (const msg of history) {
-      total += this.estimateTokens(msg.content);
+    for (const msg of (history || [])) {
+      total += this.estimateTokens(msg?.content || '');
     }
     if (this._contextSummary) {
       total += this.estimateTokens(this._contextSummary);
@@ -405,7 +420,7 @@ ${code}
       this.emit('status', {
         provider: currentProvider,
         status: 'thinking',
-        message: `${currentProvider === 'claude' ? 'Claude' : 'GPT'} is responding...`
+        message: `${this.getProviderModelLabel(currentProvider)} is responding...`
       });
 
       const discussPrompt = `The other AI (${otherProvider === 'claude' ? 'Claude' : 'GPT'}) provided this code review:
@@ -525,7 +540,7 @@ ${problem}
 Share your thoughts on this. ${isConcise ? 'Be concise and focused.' : ''}`;
 
     // Claude starts
-    this.emit('status', { provider: 'claude', status: 'thinking', message: 'Claude is thinking about the problem...' });
+    this.emit('status', { provider: 'claude', status: 'thinking', message: `${this.getProviderModelLabel('claude')} is thinking about the problem...` });
 
     const claudeStart = await this.sendToProvider('claude', [
       { role: 'user', content: collaborationPrompt }
@@ -545,7 +560,7 @@ Share your thoughts on this. ${isConcise ? 'Be concise and focused.' : ''}`;
       this.emit('status', {
         provider: currentProvider,
         status: 'thinking',
-        message: `${currentProvider === 'claude' ? 'Claude' : 'GPT'} is responding... (${turnCount + 1}/${config.maxTurns})`
+        message: `${this.getProviderModelLabel(currentProvider)} is responding... (${turnCount + 1}/${config.maxTurns})`
       });
 
       let continuePrompt: string;
@@ -631,7 +646,7 @@ Provide a brief summary (3-5 bullet points) of the key takeaways and conclusions
       throw new Error(`${provider} provider not configured`);
     }
 
-    this.emit('status', { provider, status: 'thinking', message: `${provider === 'claude' ? 'Claude' : 'GPT'} is thinking...` });
+    this.emit('status', { provider, status: 'thinking', message: `${this.getProviderModelLabel(provider)} is thinking...` });
 
     // Get workspace context for system prompt
     let fullSystemPrompt: string | undefined = this.getWorkspaceContext();
@@ -654,7 +669,7 @@ Provide a brief summary (3-5 bullet points) of the key takeaways and conclusions
     console.log(`[SpaceCode DEBUG] history length: ${history.length}`);
     if (history.length > 0) {
       history.forEach((h, i) => {
-        console.log(`[SpaceCode DEBUG]   [${i}] ${h.role}: ${h.content.substring(0, 80)}...`);
+        console.log(`[SpaceCode DEBUG]   [${i}] ${h.role}: ${(h.content || '').substring(0, 80)}...`);
       });
     }
     console.log(`[SpaceCode DEBUG] ===============================`);
@@ -680,7 +695,7 @@ Provide a brief summary (3-5 bullet points) of the key takeaways and conclusions
 
       console.log(`[SpaceCode DEBUG] CLAUDE CLI MODE - sending ${messages.length} messages (with history)`);
       messages.forEach((m, i) => {
-        console.log(`[SpaceCode DEBUG]   [${i}] ${m.role}: ${m.content.substring(0, 80)}...`);
+        console.log(`[SpaceCode DEBUG]   [${i}] ${m.role}: ${(m.content || '').substring(0, 80)}...`);
       });
       // Use streaming for real-time response display
       response = await p.streamMessage(messages, fullSystemPrompt, (chunk: string) => {
@@ -702,7 +717,7 @@ Provide a brief summary (3-5 bullet points) of the key takeaways and conclusions
 
       console.log(`[SpaceCode DEBUG] API MODE (${provider}) - sending ${messages.length} total messages`);
       messages.forEach((m, i) => {
-        console.log(`[SpaceCode DEBUG]   [${i}] ${m.role}: ${m.content.substring(0, 80)}...`);
+        console.log(`[SpaceCode DEBUG]   [${i}] ${m.role}: ${(m.content || '').substring(0, 80)}...`);
       });
       // Use streaming for real-time response display
       response = await p.streamMessage(messages, fullSystemPrompt, (chunk: string) => {

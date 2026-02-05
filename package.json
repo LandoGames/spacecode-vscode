@@ -250,6 +250,18 @@
           "type": "boolean",
           "default": true,
           "description": "Show cost notifications after API calls"
+        },
+        "spacecode.projectComplexity": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "complex"
+          ],
+          "enumDescriptions": [
+            "No required docs, quick start for small projects",
+            "Requires GDD + SA documentation setup"
+          ],
+          "description": "Project complexity level — determines documentation requirements"
         }
       }
     }

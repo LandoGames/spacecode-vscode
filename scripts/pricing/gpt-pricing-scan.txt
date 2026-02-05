@@ -1,0 +1,5 @@
+gpt-5.2: ERROR Error: HTTP 403 for https://platform.openai.com/docs/models/gpt-5.2
+gpt-5.2-pro: ERROR Error: HTTP 403 for https://platform.openai.com/docs/models/gpt-5.2-pro
+gpt-5.2-codex: ERROR Error: HTTP 403 for https://platform.openai.com/docs/models/gpt-5.2
+gpt-5-mini: ERROR Error: HTTP 403 for https://platform.openai.com/docs/models
+gpt-5-codex-mini: input=$n/a output=$n/a ctx=n/a maxOut=n/a

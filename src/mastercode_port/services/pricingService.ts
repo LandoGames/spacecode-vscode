@@ -1,9 +1,8 @@
 import * as vscode from 'vscode';
+import { PRICING_DEFAULTS, PricingEntry } from '../config/models';
+import { loadModelOverrides } from './modelOverrides';
 
-export interface PricingEntry {
-  input: number;
-  output: number;
-}
+export { PricingEntry };
 
 export class PricingService {
   private context: vscode.ExtensionContext | null = null;
@@ -15,6 +14,11 @@ export class PricingService {
     const stored = context.globalState.get<Record<string, PricingEntry>>('spacecode.pricing', this.pricing);
     if (stored) {
       this.pricing = stored;
+    }
+    // Apply local overrides from workspace (dev pricing updates)
+    const overrides = loadModelOverrides();
+    if (overrides?.pricing) {
+      this.pricing = { ...this.pricing, ...overrides.pricing };
     }
     this.refreshPricing().catch(() => undefined);
   }
@@ -59,13 +63,21 @@ export class PricingService {
         input: /GPT-4\s*\(\s*input tokens\s*\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M/iu,
         output: /GPT-4\s*\(\s*output tokens\s*\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M/iu
       },
-      'gpt-5.2': {
-        input: /GPT-5\.2[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*input/iu,
-        output: /GPT-5\.2[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*output/iu
+      'gpt-4o-mini': {
+        input: /GPT-4o\s*mini[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*input/iu,
+        output: /GPT-4o\s*mini[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*output/iu
       },
-      'gpt-5.2-codex': {
-        input: /GPT-5\.2\s*Codex[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*input/iu,
-        output: /GPT-5\.2\s*Codex[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*output/iu
+      'o1': {
+        input: /o1[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*input/iu,
+        output: /o1[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*output/iu
+      },
+      'o1-mini': {
+        input: /o1\s*mini[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*input/iu,
+        output: /o1\s*mini[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*output/iu
+      },
+      'o3-mini': {
+        input: /o3\s*mini[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*input/iu,
+        output: /o3\s*mini[\s\S]*?\$\s*(\d+(?:\.\d+)?)\s*\/\s*1M\s*output/iu
       }
     };
 
@@ -86,15 +98,7 @@ export class PricingService {
   }
 
   private defaultPricing(): Record<string, PricingEntry> {
-    return {
-      'gpt-4o': { input: 2.5, output: 10 },
-      'gpt-4-turbo': { input: 10, output: 30 },
-      'gpt-4': { input: 30, output: 60 },
-      'gpt-3.5-turbo': { input: 0.5, output: 1.5 },
-      'o1-preview': { input: 15, output: 60 },
-      'o1-mini': { input: 3, output: 12 },
-      'gpt-5.2': { input: 1, output: 5 },
-      'gpt-5.2-codex': { input: 1.5, output: 6 }
-    };
+    // Use centralized pricing from config/models.ts
+    return { ...PRICING_DEFAULTS };
   }
 }

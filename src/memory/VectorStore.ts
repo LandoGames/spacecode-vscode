@@ -29,6 +29,7 @@ export class VectorStore {
   private context: vscode.ExtensionContext | null = null;
   private dbPath: string = '';
   private initialized = false;
+  private ftsEnabled = false;
 
   // In-memory cache for hot vectors (for fast search)
   private vectorCache: Map<string, { embedding: Float32Array; chunk: EmbeddedChunk }> = new Map();
@@ -108,30 +109,36 @@ export class VectorStore {
       ON chunks(created_at DESC)
     `);
 
-    // FTS5 for keyword search on chunk content
-    this.db.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-        content,
-        keywords,
-        content='chunks',
-        content_rowid='rowid'
-      )
-    `);
+    // FTS5 for keyword search on chunk content (optional — sql.js may not include FTS5)
+    try {
+      this.db.run(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+          content,
+          keywords,
+          content='chunks',
+          content_rowid='rowid'
+        )
+      `);
 
-    // Triggers to keep FTS in sync
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-        INSERT INTO chunks_fts(rowid, content, keywords)
-        VALUES (new.rowid, new.content, new.keywords);
-      END
-    `);
+      // Triggers to keep FTS in sync
+      this.db.run(`
+        CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+          INSERT INTO chunks_fts(rowid, content, keywords)
+          VALUES (new.rowid, new.content, new.keywords);
+        END
+      `);
 
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-        INSERT INTO chunks_fts(chunks_fts, rowid, content, keywords)
-        VALUES('delete', old.rowid, old.content, old.keywords);
-      END
-    `);
+      this.db.run(`
+        CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+          INSERT INTO chunks_fts(chunks_fts, rowid, content, keywords)
+          VALUES('delete', old.rowid, old.content, old.keywords);
+        END
+      `);
+      this.ftsEnabled = true;
+    } catch {
+      console.warn('[VectorStore] FTS5 not available, keyword search will use LIKE fallback');
+      this.ftsEnabled = false;
+    }
 
     // Save database
     await this.save();
@@ -373,6 +380,11 @@ export class VectorStore {
   ): { chunk: EmbeddedChunk; score: number }[] {
     if (!this.db) return [];
 
+    // If FTS5 not available, fall back to LIKE search
+    if (!this.ftsEnabled) {
+      return this.keywordSearchFallback(query, limit, filters);
+    }
+
     // Escape FTS5 query
     const escapedQuery = this.escapeFtsQuery(query);
 
@@ -406,6 +418,50 @@ export class VectorStore {
       }));
     } catch (error) {
       console.warn('FTS search failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * LIKE-based keyword search fallback when FTS5 is unavailable
+   */
+  private keywordSearchFallback(
+    query: string,
+    limit: number = 20,
+    filters?: RetrievalFilters
+  ): { chunk: EmbeddedChunk; score: number }[] {
+    if (!this.db) return [];
+
+    const terms = query.split(/\s+/).filter(t => t.length > 0);
+    if (terms.length === 0) return [];
+
+    let sql = `SELECT id, source_id, source_type, content, content_type,
+      embedding, keywords, chunk_index, token_count, metadata, created_at
+      FROM chunks WHERE (`;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    for (const term of terms) {
+      conditions.push(`content LIKE ? OR keywords LIKE ?`);
+      params.push(`%${term}%`, `%${term}%`);
+    }
+    sql += conditions.join(' OR ') + ')';
+
+    if (filters?.sourceTypes?.length) {
+      sql += ` AND source_type IN (${filters.sourceTypes.map(() => '?').join(',')})`;
+      params.push(...filters.sourceTypes);
+    }
+
+    sql += ` LIMIT ?`;
+    params.push(limit);
+
+    try {
+      const result = this.db.exec(sql, params);
+      if (result.length === 0) return [];
+      return result[0].values.map(row => ({
+        chunk: this.rowToChunk(row),
+        score: 1.0,
+      }));
+    } catch {
       return [];
     }
   }

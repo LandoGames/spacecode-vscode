@@ -90,7 +90,7 @@ export class MCPManager {
     // Unity MCP
     const unityMcp = this.servers.get('unitymcp');
     if (unityMcp && !unityMcp.command) {
-      unityMcp.command = '/Users/blade/.local/bin/uvx';
+      unityMcp.command = 'uvx';
       unityMcp.args = [
         '--from', 'mcpforunityserver==9.2.0',
         'mcp-for-unity',
@@ -300,8 +300,14 @@ export class MCPManager {
         content = fs.readFileSync(this.CODEX_CONFIG_PATH, 'utf-8');
       }
 
-      // Remove existing entry for this server
-      const sectionRegex = new RegExp(`\\[mcp_servers\\.${config.name}\\][^\\[]*`, 'g');
+      // Remove existing entry for this server (handles both quoted and unquoted key names)
+      // Use tempered greedy token to match until next section header (line starting with [)
+      // not just any [ character (which appears inside array values like args = [...])
+      const escapedName = config.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const sectionRegex = new RegExp(
+        `\\[mcp_servers\\.(?:"${escapedName}"|${escapedName})\\](?:(?!\\n\\[)[\\s\\S])*`,
+        'g'
+      );
       content = content.replace(sectionRegex, '');
 
       // Add new entry
@@ -408,7 +414,7 @@ export class MCPManager {
       transport: 'http',
       url,
       // Command to launch the MCP server
-      command: '/Users/blade/.local/bin/uvx',
+      command: 'uvx',
       args: [
         '--from', 'mcpforunityserver==9.2.0',
         'mcp-for-unity',

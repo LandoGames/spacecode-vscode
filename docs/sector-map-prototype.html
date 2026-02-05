@@ -1,0 +1,1543 @@
+<!--
+  ══════════════════════════════════════════════════════════════════════
+  SECTOR MAP PROTOTYPE v2 — SpaceCode Extension
+  ══════════════════════════════════════════════════════════════════════
+
+  STATUS: All Phase 4 features implemented. Ready for production integration.
+
+  ─── AI CHAT ↔ SECTOR INTEGRATION DESIGN NOTE ───
+
+  The single most important feature of the sector system is that it feeds
+  the AI chat engineer the right context automatically. Here is how it works:
+
+  1. SECTOR DATA FORMAT
+     Each project stores its sector config in:
+         .spacecode/sectors.yml        (project root)
+
+     This is YAML (not JSON) because:
+       - Developers will hand-edit rules, descriptions, paths
+       - YAML supports multi-line strings cleanly (rules blocks)
+       - Comments are allowed (unlike JSON)
+       - Same format as .github/workflows, docker-compose, etc.
+
+     Schema mirrors SectorConfig.ts:
+       version: 1
+       projectName: "Spines"
+       sectors:
+         - id: core
+           name: CORE
+           icon: cpu
+           color: "#6366f1"
+           description: "Shared types, interfaces, and utilities"
+           paths:
+             - "**/Shared/**"
+             - "**/Core/**"
+           dependencies: []
+           approvalRequired: true
+           enforced: true
+           docTarget: "Docs/Architecture/CORE.md"
+           rules: |
+             You are in CORE sector — the foundation layer.
+             - NEVER add Unity-specific dependencies here
+             - All types must be serializable or interfaces
+             - Changes here propagate to ALL sectors
+
+     SectorConfig.ts loads this file at startup via:
+       const raw = fs.readFileSync('.spacecode/sectors.yml', 'utf8');
+       const config = yaml.parse(raw);
+       initSectorManager(config);
+
+  2. AI CHAT CONTEXT INJECTION — HOW IT WILL WORK
+
+     When the user is in a sector (detected from open file, or clicked on map):
+
+       a) SINGLE SECTOR MODE (clicked a sector / file belongs to one sector)
+          The chat system prompt gets injected with:
+            - Sector rules (the `rules:` field — most important)
+            - Allowed dependencies (so AI won't import from wrong sectors)
+            - Approval requirement warning
+            - Path patterns (so AI knows where to put new files)
+            - Violations list (so AI can help fix them)
+            - Blast radius (so AI warns about downstream impact)
+
+          This is already partially built:
+            SectorManager.buildContextRules(files) → string
+          That method returns the rules block. The full injection will be:
+
+            const sector = sectorManager.detectSector(activeFile);
+            const context = {
+              sectorId: sector.id,
+              sectorName: sector.name,
+              rules: sector.rules,
+              allowedDeps: sector.dependencies,
+              dependents: sectorManager.getDependentSectors(sector.id).map(s => s.id),
+              approvalRequired: sector.approvalRequired,
+              paths: sector.paths,
+              docTarget: sector.docTarget,
+            };
+            // Injected into system prompt as structured block:
+            // ## Active Sector: CORE
+            // ${sector.rules}
+            // Allowed dependencies: [character, inventory]
+            // ⚠ Changes require approval
+
+       b) GENERAL STATION MODE (no specific sector selected)
+          When the user is on the Station overview (no file open, no sector clicked),
+          the AI gets a summary of ALL sectors:
+            - List of all sectors with health status
+            - Total violation count
+            - Cross-sector dependency graph summary
+            - Which sectors need attention (health < 0.7)
+          This gives the AI a "bird's eye view" to answer architecture questions.
+
+       c) MULTI-SECTOR MODE (staged files span multiple sectors)
+          When a commit or diff touches multiple sectors:
+            const affected = sectorManager.getAffectedSectors(stagedFiles);
+            // Inject rules for ALL affected sectors
+            // Warn about cross-sector implications
+            // Flag if any affected sector requires approval
+
+     The chat message flow:
+       User clicks sector on map
+         → webview posts { type: 'sectorMapClick', sectorId: 'core' }
+         → extension handler loads full sector data
+         → extension stores activeSector in session state
+         → next AI chat message includes sector context in system prompt
+         → AI response is sector-aware
+
+     The key file that will wire this:
+       src/mastercode_port/services/chatContextBuilder.ts (to be created)
+       This reads activeSector from session state and builds the injection block.
+
+  3. WHAT WE CANNOT DO YET (requires chat integration)
+     - Actually injecting context into AI prompts (need chatContextBuilder)
+     - "Ask AI about this sector" button in the card
+     - AI-suggested fixes for violations
+     - AI-generated sector summaries
+     - Auto-detecting sector from currently open file in editor
+
+     These are all wired the same way: sector data → system prompt injection.
+     Once chatContextBuilder exists, all of these become simple message passing.
+
+  4. FILE LAYOUT
+     .spacecode/
+       sectors.yml          ← sector definitions (rules, deps, paths, colors)
+       sectors.lock.yml     ← optional: computed data (health, violations, script counts)
+     src/sectors/
+       SectorConfig.ts      ← TypeScript types + SectorManager (already exists)
+       SectorLoader.ts      ← YAML loader (to be created)
+     src/mastercode_port/services/
+       chatContextBuilder.ts ← AI context injection (to be created)
+
+  ══════════════════════════════════════════════════════════════════════
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SpaceCode — Sector Map v2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0e17; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; color: #c8d6e5; display: flex; }
+
+  /* ─── Canvas area (left) ─── */
+  #mapArea {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100vh; }
+
+  /* ─── Tooltip ─── */
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(10, 14, 23, 0.95);
+    border: 1px solid rgba(100, 200, 255, 0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #c8d6e5;
+    font-size: 12px;
+    display: none;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+    max-width: 220px;
+  }
+  #tooltip .sm-tip-name { color: #fff; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  #tooltip .sm-tip-tech { color: #5a7a9a; font-size: 10px; margin-bottom: 6px; }
+  #tooltip .sm-tip-health { font-size: 11px; }
+  #tooltip .sm-tip-deps { font-size: 10px; color: #5a7a9a; margin-top: 4px; }
+
+  /* ─── Non-asmdef tier banner ─── */
+  #tierBanner {
+    position: absolute;
+    top: 56px;
+    left: 12px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 10px;
+    color: rgba(245, 158, 11, 0.7);
+    display: none;
+    z-index: 5;
+    max-width: 320px;
+  }
+  #tierBanner .banner-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  #tierBanner .banner-desc {
+    color: rgba(200, 215, 235, 0.5);
+    line-height: 1.3;
+  }
+
+  /* ─── Sector Detail Card (right panel) ─── */
+  #sectorCard {
+    width: 0;
+    height: 100vh;
+    background: rgba(10, 14, 23, 0.97);
+    border-left: 1px solid rgba(100, 200, 255, 0.12);
+    backdrop-filter: blur(16px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 150, 200, 0.2) transparent;
+    flex-shrink: 0;
+  }
+  #sectorCard.open { width: 400px; }
+  #sectorCard::-webkit-scrollbar { width: 6px; }
+  #sectorCard::-webkit-scrollbar-thumb { background: rgba(100, 150, 200, 0.2); border-radius: 3px; }
+
+  .card-header {
+    position: sticky;
+    top: 0;
+    background: rgba(10, 14, 23, 0.95);
+    backdrop-filter: blur(12px);
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(100, 200, 255, 0.06);
+    z-index: 1;
+    min-width: 380px;
+  }
+  .card-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(150, 180, 220, 0.6);
+    font-size: 11px;
+    cursor: pointer;
+    margin-bottom: 12px;
+    transition: color 0.2s;
+  }
+  .card-back:hover { color: rgba(200, 220, 255, 0.9); }
+  .card-back svg { width: 14px; height: 14px; }
+
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .card-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .card-title-text h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+    line-height: 1.2;
+  }
+  .card-subtitle {
+    font-size: 11px;
+    color: #5a7a9a;
+    margin-top: 2px;
+  }
+
+  .card-badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .badge-health { border: 1px solid; }
+  .badge-approval {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #f87171;
+  }
+  .badge-approval.none {
+    background: rgba(100, 150, 200, 0.08);
+    border: 1px solid rgba(100, 150, 200, 0.15);
+    color: #5a7a9a;
+  }
+  .badge-scripts {
+    background: rgba(100, 150, 200, 0.08);
+    border: 1px solid rgba(100, 150, 200, 0.15);
+    color: rgba(150, 180, 220, 0.7);
+  }
+
+  /* Health bar */
+  .health-bar-wrap { margin: 16px 20px 0; min-width: 340px; }
+  .health-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: #5a7a9a;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .health-bar-track {
+    height: 6px;
+    background: rgba(100, 150, 200, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .health-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-body { padding: 0 20px 20px; min-width: 340px; }
+
+  /* Description */
+  .card-desc {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(100, 150, 200, 0.04);
+    border-radius: 8px;
+    border-left: 3px solid;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(200, 215, 235, 0.8);
+  }
+
+  /* Collapsible sections */
+  .card-section { margin-top: 16px; }
+  .card-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 8px 0;
+    user-select: none;
+  }
+  .card-section-header h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(150, 180, 220, 0.6);
+    font-weight: 600;
+  }
+  .card-section-header .count {
+    font-size: 10px;
+    background: rgba(100, 150, 200, 0.1);
+    padding: 2px 8px;
+    border-radius: 8px;
+    color: rgba(150, 180, 220, 0.5);
+  }
+  .card-section-header .chevron {
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.3);
+    transition: transform 0.2s;
+  }
+  .card-section.collapsed .chevron { transform: rotate(-90deg); }
+  .card-section.collapsed .card-section-body { display: none; }
+  .card-section-body { padding-top: 4px; }
+
+  /* Dependency rows */
+  .dep-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .dep-row:hover { background: rgba(100, 150, 200, 0.08); }
+  .dep-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dep-name { color: rgba(200, 215, 235, 0.85); font-weight: 500; }
+  .dep-check { color: #22c55e; font-size: 13px; margin-left: auto; }
+  .dep-enforced { font-size: 9px; padding: 1px 6px; border-radius: 4px; margin-left: auto; }
+  .dep-enforced.solid { background: rgba(34,197,94,0.1); color: rgba(34,197,94,0.6); }
+  .dep-enforced.dashed { background: rgba(245,158,11,0.1); color: rgba(245,158,11,0.6); }
+
+  /* Violations */
+  .violation-row {
+    padding: 10px 12px;
+    background: rgba(239, 68, 68, 0.06);
+    border: 1px solid rgba(239, 68, 68, 0.12);
+    border-radius: 8px;
+    margin-bottom: 6px;
+  }
+  .violation-title { font-size: 12px; color: #f87171; font-weight: 600; margin-bottom: 4px; }
+  .violation-fix { font-size: 11px; color: rgba(150, 180, 220, 0.6); line-height: 1.4; }
+
+  /* Dependents (reverse deps) */
+  .dependent-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .dependent-row:hover { background: rgba(100, 150, 200, 0.08); }
+  .dependent-label { color: rgba(200, 215, 235, 0.7); font-size: 11px; }
+  .blast-radius { margin-left: auto; font-size: 10px; color: rgba(245, 158, 11, 0.7); }
+
+  /* Scripts list */
+  .script-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: rgba(200, 215, 235, 0.65);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .script-row:hover { background: rgba(100, 150, 200, 0.08); color: rgba(200, 215, 235, 0.9); }
+  .script-icon { font-size: 12px; opacity: 0.4; }
+  .script-more { padding: 6px 10px; font-size: 11px; color: rgba(100, 150, 200, 0.4); cursor: pointer; }
+  .script-more:hover { color: rgba(150, 180, 220, 0.7); }
+
+  /* AI Rules section */
+  .rules-block {
+    padding: 10px 12px;
+    background: rgba(100, 150, 200, 0.04);
+    border-radius: 8px;
+    font-size: 11px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    line-height: 1.6;
+    color: rgba(200, 215, 235, 0.55);
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .rules-block .rule-line { padding: 1px 0; }
+  .rules-block .rule-bullet { color: rgba(150, 180, 220, 0.4); }
+  .rules-block .rule-keyword { color: #f87171; font-weight: 600; }
+
+  /* Path patterns */
+  .path-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: rgba(100, 150, 200, 0.06);
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: rgba(150, 180, 220, 0.5);
+    margin: 2px 4px 2px 0;
+  }
+
+  /* Doc target link */
+  .doc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(100, 150, 200, 0.06);
+    border: 1px solid rgba(100, 150, 200, 0.12);
+    border-radius: 6px;
+    font-size: 11px;
+    color: rgba(150, 180, 220, 0.6);
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 8px;
+  }
+  .doc-link:hover { background: rgba(100, 150, 200, 0.12); color: rgba(200, 220, 255, 0.9); }
+
+  /* Action buttons */
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(100, 200, 255, 0.06);
+    flex-wrap: wrap;
+  }
+  .card-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid;
+  }
+  .card-btn-primary { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3); color: #818cf8; }
+  .card-btn-primary:hover { background: rgba(99,102,241,0.25); }
+  .card-btn-secondary { background: rgba(100,150,200,0.06); border-color: rgba(100,150,200,0.12); color: rgba(150,180,220,0.6); }
+  .card-btn-secondary:hover { background: rgba(100,150,200,0.12); color: rgba(200,220,255,0.8); }
+  .card-btn-danger { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); color: rgba(248,113,113,0.7); }
+  .card-btn-danger:hover { background: rgba(239,68,68,0.15); color: #f87171; }
+
+  /* Edge legend in card */
+  .edge-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.4);
+  }
+  .edge-legend-item { display: flex; align-items: center; gap: 6px; }
+  .edge-legend-line { width: 24px; height: 0; border-top: 2px; }
+</style>
+</head>
+<body>
+<div id="mapArea">
+  <canvas id="c"></canvas>
+  <div id="tooltip">
+    <div class="sm-tip-name"></div>
+    <div class="sm-tip-tech"></div>
+    <div class="sm-tip-health"></div>
+    <div class="sm-tip-deps"></div>
+  </div>
+  <div id="tierBanner">
+    <div class="banner-title">Config-Only Mode</div>
+    <div class="banner-desc">No .asmdef files detected. Sectors are rendered from config only — boundary enforcement requires asmdef setup.</div>
+  </div>
+</div>
+<div id="sectorCard"></div>
+
+<script>
+// ================================================================
+// createOrbitalGraph — matches the engine API in sectorMap.ts
+// Returns: { setData, start, stop, destroy, onClick, resize,
+//            getNodes, getHovered, select, getSelected }
+// ================================================================
+
+function createOrbitalGraph(canvasEl, tooltipEl, options = {}) {
+  const ctx = canvasEl.getContext('2d');
+  if (!ctx) return null;
+
+  // Config (same defaults as sectorMap.ts engine)
+  const opts = {
+    bgColor: options.bgColor || '#0a0e17',
+    bgGradient: options.bgGradient !== false,
+    showStars: options.showStars !== false,
+    showTitle: options.showTitle !== false,
+    showLegend: options.showLegend !== false,
+    showSummary: options.showSummary !== false,
+    showProjectHealth: options.showProjectHealth !== false,
+    title: options.title || 'SECTOR MAP',
+    particleCount: options.particleCount || 120,
+    ellipseRatio: options.ellipseRatio || 0.65,
+    ring1Ratio: options.ring1Ratio || 0.22,
+    ring2Ratio: options.ring2Ratio || 0.38,
+    coreRadius: options.coreRadius || 38,
+    ring1Radius: options.ring1Radius || 28,
+    ring2Radius: options.ring2Radius || 24,
+    centerId: options.centerId || 'core',
+    layoutTemplate: options.layoutTemplate || 'rpg',
+    hasAsmdef: options.hasAsmdef !== false,
+    ...options,
+  };
+
+  // State
+  let W = 0, H = 0, cx = 0, cy = 0;
+  let time = 0;
+  let running = false;
+  let animId = null;
+  let hoveredNode = null;
+  let selectedNode = null;
+  let mouse = { x: -1000, y: -1000 };
+  let clickCb = null;
+  let emptyClickCb = null;
+  let selectCb = null;
+
+  // Data
+  let allNodes = [];
+  let graphNodes = [];
+  let particles = [];
+  let stars = [];
+  let dependentsMap = {};
+
+  // --- Sizing ---
+  function resize() {
+    const rect = canvasEl.parentElement
+      ? canvasEl.parentElement.getBoundingClientRect()
+      : { width: canvasEl.clientWidth || 800, height: canvasEl.clientHeight || 600 };
+    W = canvasEl.width = Math.max(200, rect.width);
+    H = canvasEl.height = Math.max(150, rect.height);
+    cx = W / 2;
+    cy = H / 2;
+    if (allNodes.length > 0) layoutNodes();
+  }
+
+  // --- Stars ---
+  function initStars() {
+    stars = [];
+    for (let i = 0; i < 200; i++) {
+      stars.push({
+        x: Math.random() * 3000 - 1500,
+        y: Math.random() * 3000 - 1500,
+        r: Math.random() * 1.2,
+        a: Math.random() * 0.5 + 0.1,
+        twinkle: Math.random() * 0.02,
+      });
+    }
+  }
+
+  // --- Position Templates ---
+  const POSITION_TEMPLATES = {
+    rpg: {
+      'core':        { x:  0.00, y:  0.00, ring: 0 },
+      'character':   { x: -0.22, y: -0.30, ring: 1 },
+      'inventory':   { x:  0.22, y: -0.30, ring: 1 },
+      'world':       { x:  0.35, y:  0.00, ring: 1 },
+      'persistence': { x: -0.35, y:  0.00, ring: 1 },
+      'ui':          { x: -0.22, y:  0.30, ring: 1 },
+      'quest':       { x:  0.22, y:  0.30, ring: 1 },
+      'combat':      { x: -0.48, y: -0.32, ring: 2 },
+      'dialogue':    { x:  0.48, y:  0.32, ring: 2 },
+      'ai':          { x:  0.48, y: -0.32, ring: 2 },
+      'editor':      { x: -0.48, y:  0.32, ring: 2 },
+      'yard':        { x:  0.00, y:  0.46, ring: 2 },
+    },
+  };
+
+  function getDepth(s) {
+    if (s.deps.length === 0 && s.id !== opts.centerId) return 2;
+    if (s.deps.length === 1 && s.deps[0] === opts.centerId) return 1;
+    if (s.deps.every(d => d === opts.centerId)) return 1;
+    return 2;
+  }
+
+  function layoutNodes() {
+    graphNodes = [];
+    const template = POSITION_TEMPLATES[opts.layoutTemplate] || {};
+    const scale = Math.min(W, H) * 0.5;
+
+    allNodes.forEach(s => {
+      const tpl = template[s.id];
+      const isCenter = s.id === opts.centerId;
+
+      if (tpl) {
+        graphNodes.push({
+          ...s,
+          x: tpl.x * scale,
+          y: tpl.y * scale,
+          radius: isCenter ? opts.coreRadius : (tpl.ring === 1 ? opts.ring1Radius : opts.ring2Radius),
+          ring: tpl.ring,
+        });
+      } else {
+        const depth = isCenter ? 0 : getDepth(s);
+        const existingInRing = graphNodes.filter(n => n.ring === depth).length;
+        const ringR = depth === 0 ? 0 : (depth === 1 ? opts.ring1Ratio : opts.ring2Ratio);
+        const angle = (existingInRing / Math.max(6, existingInRing + 1)) * Math.PI * 2 - Math.PI / 2;
+        graphNodes.push({
+          ...s,
+          x: isCenter ? 0 : Math.cos(angle) * ringR * scale,
+          y: isCenter ? 0 : Math.sin(angle) * ringR * scale * opts.ellipseRatio,
+          radius: isCenter ? opts.coreRadius : (depth === 1 ? opts.ring1Radius : opts.ring2Radius),
+          ring: depth,
+        });
+      }
+    });
+
+    spawnParticles();
+  }
+
+  // --- Dependents Map ---
+  function buildDependentsMap() {
+    dependentsMap = {};
+    allNodes.forEach(s => { dependentsMap[s.id] = []; });
+    allNodes.forEach(s => {
+      (s.deps || []).forEach(depId => {
+        if (dependentsMap[depId]) dependentsMap[depId].push(s.id);
+      });
+    });
+  }
+
+  // --- Particles ---
+  function spawnParticles() {
+    particles = [];
+    for (let i = 0; i < opts.particleCount; i++) {
+      const srcNode = graphNodes[Math.floor(Math.random() * graphNodes.length)];
+      if (!srcNode || (srcNode.deps.length === 0 && srcNode.ring !== 0)) continue;
+      const depId = srcNode.deps.length > 0
+        ? srcNode.deps[Math.floor(Math.random() * srcNode.deps.length)]
+        : null;
+      if (!depId) continue;
+      const tgtNode = graphNodes.find(n => n.id === depId);
+      if (!tgtNode) continue;
+      particles.push({
+        from: srcNode, to: tgtNode,
+        t: Math.random(),
+        speed: 0.002 + Math.random() * 0.003,
+        color: srcNode.color,
+        size: 1.5 + Math.random() * 1.5,
+        alpha: 0.4 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  // --- Color helpers ---
+  function hexToRgb(hex) {
+    return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+  }
+  function healthColor(h) {
+    if (h >= 0.9) return [34, 197, 94];
+    if (h >= 0.7) return [245, 158, 11];
+    return [239, 68, 68];
+  }
+  function healthHex(h) {
+    if (h >= 0.9) return '#22c55e';
+    if (h >= 0.7) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  // --- Mouse ---
+  function onMouseMove(e) {
+    const rect = canvasEl.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+
+    hoveredNode = null;
+    for (const n of graphNodes) {
+      const dx = (cx + n.x) - mouse.x;
+      const dy = (cy + n.y) - mouse.y;
+      if (Math.sqrt(dx * dx + dy * dy) < n.radius + 8) {
+        hoveredNode = n;
+        break;
+      }
+    }
+
+    if (hoveredNode && tooltipEl && !selectedNode) {
+      canvasEl.style.cursor = 'pointer';
+      const healthPct = Math.round(hoveredNode.health * 100);
+      const hc = healthHex(hoveredNode.health);
+      const hl = hoveredNode.health >= 0.9 ? 'Healthy' : hoveredNode.health >= 0.7 ? 'Warning' : 'Critical';
+      const nameEl = tooltipEl.querySelector('.sm-tip-name');
+      const techEl = tooltipEl.querySelector('.sm-tip-tech');
+      const healthEl = tooltipEl.querySelector('.sm-tip-health');
+      const depsEl = tooltipEl.querySelector('.sm-tip-deps');
+      if (nameEl) nameEl.textContent = hoveredNode.name;
+      if (techEl) techEl.textContent = (hoveredNode.tech || '') + (hoveredNode.scripts ? ' \u00B7 ' + hoveredNode.scripts + ' scripts' : '');
+      if (healthEl) healthEl.innerHTML = '<span style="color:' + hc + '">\u25CF ' + hl + ' (' + healthPct + '%)</span>';
+      if (depsEl) depsEl.textContent = hoveredNode.deps.length > 0 ? 'Deps: ' + hoveredNode.deps.join(', ') : 'No dependencies';
+      tooltipEl.style.display = 'block';
+      tooltipEl.style.left = (mouse.x + 16) + 'px';
+      tooltipEl.style.top = (mouse.y - 10) + 'px';
+    } else {
+      canvasEl.style.cursor = selectedNode ? 'default' : (hoveredNode ? 'pointer' : 'default');
+      if (tooltipEl) tooltipEl.style.display = 'none';
+    }
+  }
+
+  function onMouseClick() {
+    if (hoveredNode) {
+      if (clickCb) clickCb(hoveredNode);
+    } else {
+      if (emptyClickCb) emptyClickCb();
+    }
+  }
+
+  function onMouseLeave() {
+    hoveredNode = null;
+    if (tooltipEl) tooltipEl.style.display = 'none';
+    canvasEl.style.cursor = 'default';
+  }
+
+  // --- Draw frame ---
+  function draw() {
+    if (!running) return;
+    time++;
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    if (opts.bgGradient) {
+      const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
+      bg.addColorStop(0, '#0f1628');
+      bg.addColorStop(0.5, '#0a0e17');
+      bg.addColorStop(1, '#060810');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      ctx.fillStyle = opts.bgColor;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Stars
+    if (opts.showStars) {
+      stars.forEach(s => {
+        const a = s.a + Math.sin(time * s.twinkle) * 0.15;
+        ctx.beginPath();
+        ctx.arc(cx + s.x, cy + s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(180, 200, 255,' + a + ')';
+        ctx.fill();
+      });
+    }
+
+    // Ring guides
+    const baseR1 = Math.min(W, H) * opts.ring1Ratio * 0.5;
+    const baseR2 = Math.min(W, H) * opts.ring2Ratio * 0.5;
+    [baseR1, baseR2].forEach(r => {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r, r * opts.ellipseRatio, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(50, 70, 100, 0.08)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 8]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // Dependency edges — solid (enforced) vs dashed (intended)
+    graphNodes.forEach(n => {
+      (n.deps || []).forEach(depId => {
+        const dep = graphNodes.find(d => d.id === depId);
+        if (!dep) return;
+        const x1 = cx + n.x, y1 = cy + n.y;
+        const x2 = cx + dep.x, y2 = cy + dep.y;
+        const [r, g, b] = hexToRgb(n.color);
+
+        // Check if this edge is enforced (has asmdef) or intended (config-only)
+        const enforced = n.enforced !== false; // default true
+        const isSelectedEdge = selectedNode && (selectedNode.id === n.id || selectedNode.id === depId);
+        const isHoveredEdge = !selectedNode && hoveredNode && (hoveredNode.id === n.id || hoveredNode.id === depId);
+        const dimmed = selectedNode && !isSelectedEdge;
+
+        const edgeAlpha = dimmed ? 0.06 : isSelectedEdge ? 0.5 : isHoveredEdge ? 0.35 : 0.25;
+
+        const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+        grad.addColorStop(0, 'rgba(' + r + ',' + g + ',' + b + ',' + edgeAlpha + ')');
+        grad.addColorStop(0.5, 'rgba(' + r + ',' + g + ',' + b + ',' + (edgeAlpha * 0.4) + ')');
+        grad.addColorStop(1, 'rgba(100, 150, 200, ' + (dimmed ? 0.02 : 0.05) + ')');
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 20;
+        ctx.quadraticCurveTo(mx, my, x2, y2);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = isSelectedEdge ? 2.5 : isHoveredEdge ? 2 : 1;
+
+        // Dashed for intended-only boundaries (no asmdef enforcement)
+        if (!enforced) {
+          ctx.setLineDash([6, 4]);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    });
+
+    // Particles
+    particles.forEach(p => {
+      p.t += p.speed;
+      if (p.t > 1) p.t = 0;
+      const x1 = cx + p.from.x, y1 = cy + p.from.y;
+      const x2 = cx + p.to.x, y2 = cy + p.to.y;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 20;
+      const t = p.t, it = 1 - t;
+      const px = it * it * x1 + 2 * it * t * mx + t * t * x2;
+      const py = it * it * y1 + 2 * it * t * my + t * t * y2;
+      const [r, g, b] = hexToRgb(p.color);
+      const fadeAlpha = p.alpha * (t < 0.1 ? t / 0.1 : t > 0.9 ? (1 - t) / 0.1 : 1);
+      ctx.beginPath();
+      ctx.arc(px, py, p.size * 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + (fadeAlpha * 0.15) + ')';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + fadeAlpha + ')';
+      ctx.fill();
+    });
+
+    // Nodes
+    graphNodes.forEach(n => {
+      const nx = cx + n.x, ny = cy + n.y;
+      const [r, g, b] = hexToRgb(n.color);
+      const isHovered = hoveredNode && hoveredNode.id === n.id;
+      const isSelected = selectedNode && selectedNode.id === n.id;
+      const isCore = n.ring === 0;
+      const pulse = Math.sin(time * 0.03) * 0.15 + 0.85;
+
+      // Dim non-related nodes when card is open
+      const isRelated = !selectedNode || selectedNode.id === n.id ||
+        selectedNode.deps.includes(n.id) || n.deps.includes(selectedNode.id) ||
+        (dependentsMap[selectedNode.id] || []).includes(n.id);
+      const dim = selectedNode && !isRelated ? 0.25 : 1.0;
+
+      // Outer glow
+      const glowSize = isSelected ? 55 : isCore ? 60 : isHovered ? 45 : 30;
+      const glowAlpha = (isSelected ? 0.3 : isCore ? 0.15 * pulse : isHovered ? 0.2 : 0.08) * dim;
+      const glow = ctx.createRadialGradient(nx, ny, 0, nx, ny, glowSize);
+      glow.addColorStop(0, 'rgba(' + r + ',' + g + ',' + b + ',' + glowAlpha + ')');
+      glow.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ', 0)');
+      ctx.beginPath();
+      ctx.arc(nx, ny, glowSize, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.fill();
+
+      // Selected ring
+      if (isSelected) {
+        ctx.beginPath();
+        ctx.arc(nx, ny, n.radius + 10, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + b + ', 0.25)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Node circle
+      const nodeRadius = (isHovered || isSelected) ? n.radius + 4 : n.radius;
+      ctx.beginPath();
+      ctx.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ', ' + (0.12 * dim) + ')';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + (((isHovered || isSelected) ? 0.9 : 0.5) * dim) + ')';
+      ctx.lineWidth = isCore ? 2 : 1.5;
+
+      // Dashed stroke for non-asmdef sectors
+      if (n.enforced === false) {
+        ctx.setLineDash([4, 3]);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Health ring
+      if (typeof n.health === 'number') {
+        const [hr, hg, hb] = healthColor(n.health);
+        const healthAngle = n.health * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(nx, ny, nodeRadius + 4, -Math.PI / 2, -Math.PI / 2 + healthAngle);
+        ctx.strokeStyle = 'rgba(' + hr + ',' + hg + ',' + hb + ',' + (((isHovered || isSelected) ? 0.9 : 0.5) * dim) + ')';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+
+        const dotAngle = -Math.PI / 2 + healthAngle;
+        const dotX = nx + Math.cos(dotAngle) * (nodeRadius + 4);
+        const dotY = ny + Math.sin(dotAngle) * (nodeRadius + 4);
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(' + hr + ',' + hg + ',' + hb + ', ' + (0.9 * dim) + ')';
+        ctx.fill();
+      }
+
+      // Labels
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = (isCore ? 'bold 13px' : 'bold 11px') + ' "Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255,' + (((isHovered || isSelected) ? 1 : 0.85) * dim) + ')';
+      ctx.fillText(n.name, nx, ny - (isCore ? 4 : 3));
+
+      ctx.font = '9px "Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(150, 170, 200, ' + (((isHovered || isSelected) ? 0.8 : 0.4) * dim) + ')';
+      ctx.fillText((n.tech || '').replace('asmdef: ', ''), nx, ny + (isCore ? 12 : 10));
+    });
+
+    // ─── Title + Project Health Bar ───
+    if (opts.showTitle) {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.font = 'bold 14px "Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(200, 215, 235, 0.7)';
+      ctx.fillText(opts.title, 12, 10);
+
+      // Project health bar (aggregate)
+      if (opts.showProjectHealth && allNodes.length > 0) {
+        const avgHealth = allNodes.reduce((a, s) => a + (s.health || 0), 0) / allNodes.length;
+        const pct = Math.round(avgHealth * 100);
+        const [phr, phg, phb] = healthColor(avgHealth);
+        const barX = 120;
+        const barY = 12;
+        const barW = 100;
+        const barH = 8;
+
+        // Track
+        ctx.fillStyle = 'rgba(100, 150, 200, 0.08)';
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barW, barH, 4);
+        ctx.fill();
+
+        // Fill
+        ctx.fillStyle = 'rgba(' + phr + ',' + phg + ',' + phb + ', 0.6)';
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barW * avgHealth, barH, 4);
+        ctx.fill();
+
+        // Percentage text
+        ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(' + phr + ',' + phg + ',' + phb + ', 0.7)';
+        ctx.fillText(pct + '%', barX + barW + 6, barY - 1);
+      }
+    }
+
+    // Summary
+    if (opts.showSummary && allNodes.length > 0) {
+      const totalBoundaries = allNodes.reduce((a, s) => a + (s.deps || []).length, 0);
+      const totalViolations = allNodes.reduce((a, s) => a + (s.violations || 0), 0);
+      const enforced = allNodes.filter(s => s.enforced !== false).length;
+      ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(100, 130, 170, 0.5)';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(
+        'Sectors: ' + allNodes.length +
+        '  \u00B7  Boundaries: ' + totalBoundaries +
+        '  \u00B7  Enforced: ' + enforced + '/' + allNodes.length +
+        '  \u00B7  Violations: ' + totalViolations,
+        12, 28
+      );
+    }
+
+    // Legend
+    if (opts.showLegend) {
+      const ly = H - 20;
+      ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+
+      ctx.beginPath(); ctx.arc(14, ly, 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.7)'; ctx.fill();
+      ctx.fillStyle = 'rgba(100, 130, 170, 0.4)';
+      ctx.fillText('Healthy', 24, ly);
+
+      ctx.beginPath(); ctx.arc(82, ly, 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.7)'; ctx.fill();
+      ctx.fillStyle = 'rgba(100, 130, 170, 0.4)';
+      ctx.fillText('Warning', 92, ly);
+
+      ctx.beginPath(); ctx.arc(155, ly, 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.7)'; ctx.fill();
+      ctx.fillStyle = 'rgba(100, 130, 170, 0.4)';
+      ctx.fillText('Critical', 165, ly);
+
+      // Edge style legend
+      ctx.strokeStyle = 'rgba(100, 150, 200, 0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(230, ly); ctx.lineTo(254, ly); ctx.stroke();
+      ctx.fillText('Enforced', 260, ly);
+
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(318, ly); ctx.lineTo(342, ly); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText('Intended', 348, ly);
+
+      // Click hint (right side)
+      ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(100, 130, 170, 0.25)';
+      ctx.fillText('Click a sector to inspect', W - 14, ly);
+    }
+
+    animId = requestAnimationFrame(draw);
+  }
+
+  // --- Public API ---
+  function setData(sectorNodes) {
+    allNodes = sectorNodes || [];
+    buildDependentsMap();
+    if (W === 0) resize();
+    layoutNodes();
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    canvasEl.addEventListener('mousemove', onMouseMove);
+    canvasEl.addEventListener('click', onMouseClick);
+    canvasEl.addEventListener('mouseleave', onMouseLeave);
+    draw();
+  }
+
+  function stop() {
+    running = false;
+    if (animId) { cancelAnimationFrame(animId); animId = null; }
+    canvasEl.removeEventListener('mousemove', onMouseMove);
+    canvasEl.removeEventListener('click', onMouseClick);
+    canvasEl.removeEventListener('mouseleave', onMouseLeave);
+  }
+
+  function destroy() {
+    stop();
+    graphNodes = []; particles = []; stars = []; allNodes = [];
+  }
+
+  function onClick(cb) { clickCb = cb; }
+  function onEmptyClick(cb) { emptyClickCb = cb; }
+
+  function select(nodeOrId) {
+    if (!nodeOrId) { selectedNode = null; return; }
+    const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId.id;
+    selectedNode = graphNodes.find(n => n.id === id) || null;
+  }
+
+  // Init
+  initStars();
+  resize();
+
+  const resizeObserver = new ResizeObserver(() => resize());
+  resizeObserver.observe(canvasEl.parentElement || canvasEl);
+
+  return {
+    setData,
+    start,
+    stop,
+    destroy,
+    onClick,
+    onEmptyClick,
+    resize,
+    getNodes: () => graphNodes,
+    getHovered: () => hoveredNode,
+    // Extended API for card integration:
+    select,
+    getSelected: () => selectedNode,
+    getDependents: (id) => dependentsMap[id] || [],
+  };
+}
+
+
+// ================================================================
+// SECTOR DATA — mirrors SectorConfig.ts + asmdef handler shape
+// ================================================================
+
+const ICONS = {
+  cpu: '\u2699\uFE0F', person: '\uD83E\uDDD1', flame: '\u2694\uFE0F', archive: '\uD83D\uDCE6',
+  chat: '\uD83D\uDCAC', map: '\uD83D\uDDFA\uFE0F', globe: '\uD83C\uDF0D', robot: '\uD83E\uDD16',
+  database: '\uD83D\uDCBE', layout: '\uD83D\uDDA5\uFE0F', wrench: '\uD83D\uDD27', beaker: '\uD83E\uDDEA',
+};
+
+const sectors = [
+  {
+    id: 'core', name: 'CORE', tech: 'asmdef: Core', color: '#6366f1', health: 1.0,
+    deps: [], desc: 'Shared types, interfaces, and utilities', scripts: 24, icon: 'cpu',
+    approvalRequired: true, docTarget: 'Docs/Architecture/CORE.md', enforced: true,
+    paths: ['**/Shared/**', '**/Core/**', '**/Common/**'],
+    rules: 'You are in CORE sector - the foundation layer.\n- NEVER add Unity-specific dependencies here (keep pure C#)\n- All types must be serializable or interfaces\n- Changes here propagate to ALL sectors - be careful\n- Use readonly structs for ViewModels\n- No MonoBehaviour allowed in core types',
+    violations: [],
+    sampleScripts: ['SharedTypes.cs', 'IEntity.cs', 'GameConstants.cs', 'ServiceLocator.cs', 'ViewModelBase.cs', 'EventBus.cs', 'ObjectPool.cs', 'MathUtils.cs', 'SerializationHelper.cs', 'IDProvider.cs'],
+  },
+  {
+    id: 'character', name: 'HANGAR', tech: 'asmdef: Character', color: '#22c55e', health: 0.92,
+    deps: ['core'], desc: 'Character customization, appearance, stats', scripts: 18, icon: 'person',
+    approvalRequired: false, docTarget: 'Docs/Systems/CHARACTER.md', enforced: true,
+    paths: ['**/Character/**', '**/Player/**', '**/Avatar/**', '**/ControllerLite/**'],
+    rules: 'You are in HANGAR sector - character systems.\n- Equipment slots follow standard pattern: helmet, armor, legs, cape, mainHand, offHand\n- Color properties use tint channels (skin, hair, eye, etc.)\n- All appearance changes must serialize to save data\n- Use ScriptableObjects for equipment definitions\n- New equipment slots need SlotCategoryConfig entry',
+    violations: [
+      { target: 'ui', desc: 'CharacterPreview.cs references UIManager directly', fix: 'Use event bus or interface injection instead of direct UI reference' },
+    ],
+    sampleScripts: ['CharacterController.cs', 'AppearanceManager.cs', 'StatBlock.cs', 'EquipmentSlot.cs', 'TintSystem.cs', 'CharacterPreview.cs', 'AvatarBuilder.cs', 'SlotCategoryConfig.cs'],
+  },
+  {
+    id: 'combat', name: 'ARMORY', tech: 'asmdef: Combat', color: '#ef4444', health: 0.78,
+    deps: ['core', 'character', 'inventory'], desc: 'Combat mechanics, damage, abilities', scripts: 31, icon: 'flame',
+    approvalRequired: false, docTarget: 'Docs/Systems/COMBAT.md', enforced: true,
+    paths: ['**/Combat/**', '**/Battle/**', '**/Abilities/**', '**/Skills/**'],
+    rules: 'You are in ARMORY sector - combat systems.\n- Stats: Health, Mana, Stamina, Attack, Defense, Speed\n- Damage types: Physical, Fire, Ice, Lightning, Poison, Holy, Dark\n- Never hardcode damage formulas - use DamageCalculator\n- All abilities must have cooldown and resource cost\n- Status effects as ScriptableObjects with duration + tick\n- Use object pooling for damage numbers and particles',
+    violations: [
+      { target: 'dialogue', desc: 'CombatDialogueTrigger.cs imports Dialogue.DialogueTree', fix: 'Add to policy or route through quest event system' },
+      { target: 'ui', desc: 'DamageNumberSpawner.cs creates UI elements directly', fix: 'Use UIFactory service or event-driven spawn pattern' },
+    ],
+    sampleScripts: ['CombatManager.cs', 'DamageCalculator.cs', 'AbilitySystem.cs', 'StatusEffect.cs', 'CombatDialogueTrigger.cs', 'DamageNumberSpawner.cs', 'HitDetection.cs', 'CombatAnimator.cs', 'SkillTree.cs', 'BuffDebuffSystem.cs'],
+  },
+  {
+    id: 'inventory', name: 'CARGO', tech: 'asmdef: Inventory', color: '#f59e0b', health: 0.95,
+    deps: ['core'], desc: 'Items, equipment, loot tables', scripts: 16, icon: 'archive',
+    approvalRequired: false, docTarget: 'Docs/Systems/INVENTORY.md', enforced: true,
+    paths: ['**/Inventory/**', '**/Items/**', '**/Loot/**', '**/Equipment/**'],
+    rules: 'You are in CARGO sector - inventory systems.\n- Items are immutable ScriptableObjects\n- InventorySlot is the mutable runtime wrapper\n- All item IDs must be unique (GUID or string)\n- Loot tables use weighted random from ScriptableObject\n- Drag-drop uses Unity EventSystem interfaces\n- Equipment slots mirror Character system',
+    violations: [],
+    sampleScripts: ['InventoryManager.cs', 'ItemDatabase.cs', 'LootTable.cs', 'EquipmentManager.cs', 'InventorySlot.cs', 'ItemTooltip.cs', 'DragDropHandler.cs', 'CraftingSystem.cs'],
+  },
+  {
+    id: 'dialogue', name: 'COMMS', tech: 'asmdef: Dialogue', color: '#8b5cf6', health: 0.60,
+    deps: ['core', 'quest'], desc: 'NPC conversations, branching dialogue', scripts: 12, icon: 'chat',
+    approvalRequired: false, docTarget: 'Docs/Systems/DIALOGUE.md', enforced: true,
+    paths: ['**/Dialogue/**', '**/Conversation/**', '**/NPC/**'],
+    rules: 'You are in COMMS sector - dialogue systems.\n- DialogueTree as ScriptableObject graph of DialogueNodes\n- Node types: Text, Choice, Condition, Action, Random\n- Never hardcode dialogue strings - use localization keys\n- All choices must have valid next nodes\n- Condition nodes must have true AND false branches\n- Support voice-over audio clips per node',
+    violations: [
+      { target: 'combat', desc: 'DialogueActionNode.cs triggers CombatManager.StartBattle()', fix: 'Use event system: fire DialogueAction event, let combat subscribe' },
+      { target: 'persistence', desc: 'DialogueSaveHelper.cs accesses SaveManager internals', fix: 'Implement ISaveable interface on DialogueState instead' },
+      { target: 'ui', desc: 'DialogueRenderer.cs creates UI panels directly', fix: 'Use BRIDGE-UI ViewAdapter pattern for dialogue display' },
+    ],
+    sampleScripts: ['DialogueTree.cs', 'DialogueNode.cs', 'DialogueRunner.cs', 'ChoiceNode.cs', 'ConditionNode.cs', 'DialogueActionNode.cs', 'DialogueSaveHelper.cs', 'DialogueRenderer.cs', 'LocalizationKey.cs'],
+  },
+  {
+    id: 'quest', name: 'MISSIONS', tech: 'asmdef: Quest', color: '#06b6d4', health: 0.88,
+    deps: ['core', 'inventory'], desc: 'Quest system, objectives, rewards', scripts: 14, icon: 'map',
+    approvalRequired: false, docTarget: 'Docs/Systems/QUESTS.md', enforced: true,
+    paths: ['**/Quest/**', '**/Mission/**', '**/Objectives/**'],
+    rules: 'You are in MISSIONS sector - quest systems.\n- Quest as ScriptableObject with objectives list\n- Objective types: Kill, Collect, Talk, Explore, Escort\n- Quest states: Available, Active, Completed, Failed\n- Track progress per-objective, aggregate to quest level\n- Rewards defined in quest, granted on completion\n- Prerequisites can reference other quests or conditions',
+    violations: [
+      { target: 'world', desc: 'QuestTriggerZone.cs directly accesses ZoneManager', fix: 'Use spatial event system instead of direct zone reference' },
+    ],
+    sampleScripts: ['QuestManager.cs', 'QuestDefinition.cs', 'ObjectiveTracker.cs', 'RewardGranter.cs', 'QuestTriggerZone.cs', 'QuestLog.cs', 'QuestPrerequisite.cs', 'KillObjective.cs', 'CollectObjective.cs'],
+  },
+  {
+    id: 'world', name: 'NAVIGATION', tech: 'asmdef: World', color: '#14b8a6', health: 1.0,
+    deps: ['core'], desc: 'Maps, zones, spawning, environments', scripts: 22, icon: 'globe',
+    approvalRequired: false, docTarget: 'Docs/Systems/WORLD.md', enforced: true,
+    paths: ['**/World/**', '**/Levels/**', '**/Zones/**', '**/Environment/**'],
+    rules: 'You are in NAVIGATION sector - world systems.\n- Zone as ScriptableObject with scene reference + connections\n- Additive scene loading for seamless transitions\n- Each zone must have at least one SpawnPoint\n- Zone connections must be bidirectional\n- Spawned enemies use object pooling\n- Day/night cycle affects lighting and spawns',
+    violations: [],
+    sampleScripts: ['ZoneManager.cs', 'SpawnPoint.cs', 'ZoneConnection.cs', 'SceneLoader.cs', 'DayNightCycle.cs', 'EnvironmentFX.cs', 'WeatherSystem.cs', 'MiniMap.cs'],
+  },
+  {
+    id: 'ai', name: 'SENSORS', tech: 'asmdef: AI', color: '#ec4899', health: 0.85,
+    deps: ['core', 'combat', 'world'], desc: 'Enemy AI, NPC behavior, pathfinding', scripts: 19, icon: 'robot',
+    approvalRequired: false, docTarget: 'Docs/Systems/AI.md', enforced: true,
+    paths: ['**/AI/**', '**/Behavior/**', '**/Pathfinding/**'],
+    rules: 'You are in SENSORS sector - AI systems.\n- BehaviorTree as ScriptableObject defines decision logic\n- Node types: Selector, Sequence, Parallel, Decorator, Action, Condition\n- Perception via Physics2D.OverlapCircle / raycast\n- AI updates on fixed timestep (not every frame)\n- Use LOD for distant AI (simplified behavior)\n- Cache component references, avoid GetComponent in Update',
+    violations: [
+      { target: 'dialogue', desc: 'NPCBrain.cs imports DialogueTree for conversation triggers', fix: 'Use event-driven interaction: AI fires InteractEvent, dialogue subscribes' },
+    ],
+    sampleScripts: ['BehaviorTree.cs', 'NPCBrain.cs', 'Pathfinder.cs', 'PerceptionSystem.cs', 'AIManager.cs', 'SelectorNode.cs', 'SequenceNode.cs', 'PatrolAction.cs', 'ChaseAction.cs', 'FleeAction.cs'],
+  },
+  {
+    id: 'persistence', name: 'QUARTERS', tech: 'asmdef: Persistence', color: '#64748b', health: 1.0,
+    deps: ['core'], desc: 'Save/load, player data, settings', scripts: 8, icon: 'database',
+    approvalRequired: true, docTarget: 'Docs/Systems/PERSISTENCE.md', enforced: true,
+    paths: ['**/Save/**', '**/Persistence/**', '**/Settings/**', '**/PlayerData/**'],
+    rules: 'You are in QUARTERS sector - persistence systems.\n- NEVER change existing save field names (breaks old saves)\n- New fields must have default values\n- Version bump + migration code for structural changes\n- Use JSON for save format (portable)\n- ISaveable interface for components with save/load needs\n- Auto-save on scene transitions and timed intervals',
+    violations: [],
+    sampleScripts: ['SaveManager.cs', 'SaveData.cs', 'SaveMigration.cs', 'ISaveable.cs', 'SettingsManager.cs', 'AutoSave.cs', 'CloudSync.cs', 'PlayerProfile.cs'],
+  },
+  {
+    id: 'ui', name: 'BRIDGE-UI', tech: 'asmdef: UI', color: '#a855f7', health: 0.70,
+    deps: ['core'], desc: 'User interface, HUD, menus', scripts: 27, icon: 'layout',
+    approvalRequired: false, docTarget: 'Docs/Systems/UI.md', enforced: true,
+    paths: ['**/UI/**', '**/HUD/**', '**/Menus/**', '**/UITK/**', '**/UGUI/**'],
+    rules: 'You are in BRIDGE-UI sector - interface systems.\n- MVP pattern: Controller (logic) + ViewAdapter (UI binding)\n- ViewModels are readonly structs\n- Events for user actions, methods for state updates\n- Prefer UI Toolkit for new UI (UITK)\n- Legacy uGUI supported but not for new features\n- Use ThemeManager for light/dark mode support',
+    violations: [],
+    sampleScripts: ['UIManager.cs', 'ViewAdapter.cs', 'HUDController.cs', 'MenuManager.cs', 'ThemeManager.cs', 'ModalDialog.cs', 'InventoryUI.cs', 'CharacterSheet.cs', 'MiniMapUI.cs', 'SettingsPanel.cs'],
+  },
+  {
+    id: 'editor', name: 'ENGINEERING', tech: 'asmdef: Editor', color: '#78716c', health: 1.0,
+    deps: [], desc: 'Editor tools, debugging, development', scripts: 11, icon: 'wrench',
+    approvalRequired: false, docTarget: 'Docs/Editor/TOOLS.md', enforced: true,
+    paths: ['**/Editor/**'],
+    rules: 'You are in ENGINEERING sector - editor tools.\n- All editor code must be in Editor/ folders or Editor assemblies\n- Use SerializedProperty for undo support\n- Cache SerializedObject, call Update/ApplyModifiedProperties\n- Large operations need progress bars\n- Never include editor code in runtime builds\n- UITK preferred for modern editor UI',
+    violations: [],
+    sampleScripts: ['CustomInspector.cs', 'SceneToolbar.cs', 'BuildPipeline.cs', 'DebugOverlay.cs', 'AssetValidator.cs', 'LevelDesignerTool.cs', 'GizmoDrawer.cs'],
+  },
+  {
+    id: 'yard', name: 'YARD', tech: 'config-only', color: '#fbbf24', health: 0.50,
+    deps: [], desc: 'Experimental, prototyping, sandbox', scripts: 5, icon: 'beaker',
+    approvalRequired: false, docTarget: null, enforced: false,
+    paths: ['**/Sandbox/**', '**/Prototype/**', '**/Test/**', '**/Experiments/**'],
+    rules: 'You are in YARD sector - experimental zone.\n- No rules enforced - this is for prototyping\n- Code here should NOT be production quality\n- Move to proper sector when feature is ready\n- Tests and experiments welcome\n- Documentation not required',
+    violations: [
+      { target: 'core', desc: 'PrototypeHelper.cs modifies SharedTypes directly', fix: 'Copy types to Sandbox; do not mutate core from experiments' },
+      { target: 'combat', desc: 'TestCombat.cs uses internal CombatManager APIs', fix: 'Use public combat API or create a test harness' },
+    ],
+    sampleScripts: ['PrototypeHelper.cs', 'TestCombat.cs', 'PerformanceBench.cs', 'AIExperiment.cs', 'ShaderTest.cs'],
+  },
+];
+
+
+// ================================================================
+// INITIALIZE — using the engine API
+// ================================================================
+
+const canvas = document.getElementById('c');
+const tooltip = document.getElementById('tooltip');
+const sectorCard = document.getElementById('sectorCard');
+const tierBanner = document.getElementById('tierBanner');
+
+const graph = createOrbitalGraph(canvas, tooltip, {
+  title: 'SECTOR MAP',
+  centerId: 'core',
+  showProjectHealth: true,
+  hasAsmdef: true,
+});
+
+// Feed data via the same API the Station panel uses
+graph.setData(sectors);
+
+// Click → open card (same as sectorMap.ts: onClick fires, then
+// the handler posts sectorMapClick and receives sectorMapDetail)
+graph.onClick((node) => {
+  openSectorCard(node);
+});
+
+graph.onEmptyClick(() => {
+  closeSectorCard();
+});
+
+graph.start();
+
+// Show tier banner if any sector is config-only
+const hasNonAsmdef = sectors.some(s => s.enforced === false);
+if (hasNonAsmdef) {
+  tierBanner.style.display = 'block';
+}
+
+
+// ================================================================
+// SECTOR CARD — split-view detail panel
+// ================================================================
+
+function openSectorCard(node) {
+  graph.select(node.id);
+  tooltip.style.display = 'none';
+  renderSectorCard(node);
+  sectorCard.classList.add('open');
+}
+
+function closeSectorCard() {
+  graph.select(null);
+  sectorCard.classList.remove('open');
+}
+
+function navigateToSector(sectorId) {
+  const nodes = graph.getNodes();
+  const node = nodes.find(n => n.id === sectorId);
+  if (node) {
+    closeSectorCard();
+    setTimeout(() => openSectorCard(node), 380);
+  }
+}
+
+function renderSectorCard(s) {
+  const healthPct = Math.round(s.health * 100);
+  const hColor = s.health >= 0.9 ? '#22c55e' : s.health >= 0.7 ? '#f59e0b' : '#ef4444';
+  const hLabel = s.health >= 0.9 ? 'Healthy' : s.health >= 0.7 ? 'Warning' : 'Critical';
+  const dependents = graph.getDependents(s.id);
+  const totalViolations = s.violations ? s.violations.length : 0;
+  const isEnforced = s.enforced !== false;
+
+  function formatRules(rules) {
+    if (!rules) return '';
+    return rules.split('\n').map(line => {
+      line = line.replace(/\b(NEVER|NOT|NO)\b/g, '<span class="rule-keyword">$1</span>');
+      if (line.startsWith('- ')) {
+        return '<div class="rule-line"><span class="rule-bullet">-</span> ' + line.slice(2) + '</div>';
+      }
+      return '<div class="rule-line">' + line + '</div>';
+    }).join('');
+  }
+
+  const html = `
+    <div class="card-header">
+      <div class="card-back" onclick="closeSectorCard()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        Back to Map
+      </div>
+      <div class="card-title-row">
+        <div class="card-icon" style="background: ${s.color}22; border: 1px solid ${s.color}44;">
+          ${ICONS[s.icon] || '\u25CF'}
+        </div>
+        <div class="card-title-text">
+          <h2>${s.name}</h2>
+          <div class="card-subtitle">${s.id} \u00B7 ${s.tech}${!isEnforced ? ' \u00B7 <span style="color:rgba(245,158,11,0.7)">config-only</span>' : ''}</div>
+        </div>
+      </div>
+      <div class="card-badges">
+        <span class="badge badge-health" style="background: ${hColor}18; border-color: ${hColor}44; color: ${hColor};">
+          \u25CF ${hLabel} ${healthPct}%
+        </span>
+        ${s.approvalRequired
+          ? '<span class="badge badge-approval">\uD83D\uDD12 Approval Required</span>'
+          : '<span class="badge badge-approval none">Open</span>'}
+        <span class="badge badge-scripts">\uD83D\uDCC4 ${s.scripts} scripts</span>
+        ${totalViolations > 0
+          ? '<span class="badge" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;">\u26A0 ' + totalViolations + ' violation' + (totalViolations > 1 ? 's' : '') + '</span>'
+          : ''}
+        ${!isEnforced
+          ? '<span class="badge" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:rgba(245,158,11,0.7);">No asmdef</span>'
+          : ''}
+      </div>
+    </div>
+
+    <div class="health-bar-wrap">
+      <div class="health-bar-label">
+        <span>Sector Health</span>
+        <span style="color:${hColor}">${healthPct}%</span>
+      </div>
+      <div class="health-bar-track">
+        <div class="health-bar-fill" style="width:${healthPct}%;background:${hColor};"></div>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <div class="card-desc" style="border-color:${s.color}66;">${s.desc}</div>
+
+      ${!isEnforced ? `
+      <div style="margin-top:12px;padding:10px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:8px;font-size:11px;">
+        <div style="color:rgba(245,158,11,0.8);font-weight:600;margin-bottom:4px;">\u26A0 Config-Only Sector</div>
+        <div style="color:rgba(200,215,235,0.5);line-height:1.4;">This sector has no .asmdef file. Boundaries are defined in config but not enforced at compile time. Add an asmdef to enable enforcement.</div>
+      </div>` : ''}
+
+      <!-- Allowed Dependencies -->
+      <div class="card-section" id="secDeps">
+        <div class="card-section-header" onclick="toggleSection('secDeps')">
+          <h3>Allowed Dependencies</h3>
+          <span class="count">${s.deps.length}</span>
+          <span class="chevron">\u25BC</span>
+        </div>
+        <div class="card-section-body">
+          ${s.deps.length === 0
+            ? '<div style="padding:8px 10px;font-size:11px;color:rgba(150,180,220,0.4);">No dependencies \u2014 this is a root sector</div>'
+            : s.deps.map(depId => {
+                const dep = sectors.find(ss => ss.id === depId);
+                const depEnforced = dep && dep.enforced !== false;
+                return '<div class="dep-row" onclick="navigateToSector(\'' + depId + '\')">' +
+                  '<span style="color:rgba(100,150,200,0.3);font-size:10px;">\u2192</span>' +
+                  '<span class="dep-dot" style="background:' + (dep ? dep.color : '#555') + ';"></span>' +
+                  '<span class="dep-name">' + (dep ? dep.name : depId) + '</span>' +
+                  '<span style="font-size:10px;color:rgba(150,180,220,0.3);">' + depId + '</span>' +
+                  '<span class="dep-enforced ' + (depEnforced ? 'solid' : 'dashed') + '">' + (depEnforced ? 'enforced' : 'intended') + '</span>' +
+                '</div>';
+              }).join('')}
+          <div class="edge-legend">
+            <div class="edge-legend-item"><span style="display:inline-block;width:20px;border-top:2px solid rgba(100,150,200,0.35);"></span> enforced (asmdef)</div>
+            <div class="edge-legend-item"><span style="display:inline-block;width:20px;border-top:2px dashed rgba(100,150,200,0.35);"></span> intended (config)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Violations -->
+      ${totalViolations > 0 ? `
+      <div class="card-section" id="secViolations">
+        <div class="card-section-header" onclick="toggleSection('secViolations')">
+          <h3>Violations</h3>
+          <span class="count" style="background:rgba(239,68,68,0.15);color:#f87171;">${totalViolations}</span>
+          <span class="chevron">\u25BC</span>
+        </div>
+        <div class="card-section-body">
+          ${s.violations.map(v => {
+            const target = sectors.find(ss => ss.id === v.target);
+            return '<div class="violation-row">' +
+              '<div class="violation-title">\u2717 \u2192 ' + (target ? target.name : v.target) + ' <span style="font-weight:400;color:rgba(248,113,113,0.5);">(not in allowed list)</span></div>' +
+              '<div style="font-size:11px;color:rgba(200,215,235,0.6);margin-bottom:4px;">' + v.desc + '</div>' +
+              '<div class="violation-fix">Fix: ' + v.fix + '</div>' +
+            '</div>';
+          }).join('')}
+        </div>
+      </div>` : ''}
+
+      <!-- Dependents (blast radius) -->
+      <div class="card-section" id="secDependents">
+        <div class="card-section-header" onclick="toggleSection('secDependents')">
+          <h3>Dependents (Blast Radius)</h3>
+          <span class="count">${dependents.length}</span>
+          <span class="chevron">\u25BC</span>
+        </div>
+        <div class="card-section-body">
+          ${dependents.length === 0
+            ? '<div style="padding:8px 10px;font-size:11px;color:rgba(150,180,220,0.4);">No other sectors depend on this one</div>'
+            : dependents.map(depId => {
+                const dep = sectors.find(ss => ss.id === depId);
+                return '<div class="dependent-row" onclick="navigateToSector(\'' + depId + '\')">' +
+                  '<span class="dep-dot" style="background:' + (dep ? dep.color : '#555') + ';"></span>' +
+                  '<span class="dep-name">' + (dep ? dep.name : depId) + '</span>' +
+                  '<span class="dependent-label">depends on ' + s.name + '</span>' +
+                  (s.approvalRequired ? '<span class="blast-radius">\u26A0 approval cascade</span>' : '') +
+                '</div>';
+              }).join('')}
+        </div>
+      </div>
+
+      <!-- Scripts -->
+      <div class="card-section collapsed" id="secScripts">
+        <div class="card-section-header" onclick="toggleSection('secScripts')">
+          <h3>Scripts</h3>
+          <span class="count">${s.scripts} files</span>
+          <span class="chevron">\u25BC</span>
+        </div>
+        <div class="card-section-body">
+          ${(s.sampleScripts || []).slice(0, 8).map(name =>
+            '<div class="script-row"><span class="script-icon">\uD83D\uDCC4</span>' + name + '</div>'
+          ).join('')}
+          ${s.scripts > 8 ? '<div class="script-more">+ ' + (s.scripts - 8) + ' more files...</div>' : ''}
+        </div>
+      </div>
+
+      <!-- AI Rules -->
+      <div class="card-section collapsed" id="secRules">
+        <div class="card-section-header" onclick="toggleSection('secRules')">
+          <h3>AI Context Rules</h3>
+          <span class="chevron">\u25BC</span>
+        </div>
+        <div class="card-section-body">
+          <div class="rules-block">${formatRules(s.rules)}</div>
+        </div>
+      </div>
+
+      <!-- Path Patterns -->
+      <div class="card-section collapsed" id="secPaths">
+        <div class="card-section-header" onclick="toggleSection('secPaths')">
+          <h3>Path Patterns</h3>
+          <span class="count">${s.paths ? s.paths.length : 0}</span>
+          <span class="chevron">\u25BC</span>
+        </div>
+        <div class="card-section-body">
+          <div style="display:flex;flex-wrap:wrap;gap:2px;">
+            ${(s.paths || []).map(p => '<span class="path-row">' + p + '</span>').join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Doc Target -->
+      ${s.docTarget ? '<div class="doc-link">\uD83D\uDCD6 ' + s.docTarget + '</div>' : ''}
+
+      <!-- Actions -->
+      <div class="card-actions">
+        <div class="card-btn card-btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          Open Folder
+        </div>
+        ${isEnforced ? `
+        <div class="card-btn card-btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Open Asmdef
+        </div>` : ''}
+        <div class="card-btn card-btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Edit Policy
+        </div>
+        ${totalViolations > 0 ? `
+        <div class="card-btn card-btn-danger">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Run Check
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+
+  sectorCard.innerHTML = html;
+}
+
+function toggleSection(id) {
+  const section = document.getElementById(id);
+  if (section) section.classList.toggle('collapsed');
+}
+</script>
+</body>
+</html>

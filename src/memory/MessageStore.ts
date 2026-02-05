@@ -28,6 +28,7 @@ export class MessageStore {
   private context: vscode.ExtensionContext | null = null;
   private dbPath: string = '';
   private initialized = false;
+  private ftsEnabled = false;
 
   /**
    * Initialize the message store
@@ -92,35 +93,41 @@ export class MessageStore {
       ON messages(workspace_path, timestamp DESC)
     `);
 
-    // FTS5 virtual table for full-text search
-    // Note: sql.js supports FTS5
-    this.db.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-        content,
-        content='messages',
-        content_rowid='id'
-      )
-    `);
+    // FTS5 virtual table for full-text search (optional — sql.js may not include FTS5)
+    try {
+      this.db.run(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+          content,
+          content='messages',
+          content_rowid='id'
+        )
+      `);
 
-    // Triggers to keep FTS in sync
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-        INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
-      END
-    `);
+      // Triggers to keep FTS in sync
+      this.db.run(`
+        CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+          INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END
+      `);
 
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-        INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
-      END
-    `);
+      this.db.run(`
+        CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+          INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+        END
+      `);
 
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-        INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
-        INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
-      END
-    `);
+      this.db.run(`
+        CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+          INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+          INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END
+      `);
+      this.ftsEnabled = true;
+    } catch {
+      // FTS5 not available in this sql.js build — search falls back to LIKE
+      console.warn('[MessageStore] FTS5 not available, full-text search will use LIKE fallback');
+      this.ftsEnabled = false;
+    }
 
     // Save database
     await this.save();
@@ -240,6 +247,11 @@ export class MessageStore {
     workspacePath?: string
   ): { message: StoredMessage; score: number }[] {
     if (!this.db) return [];
+
+    // If FTS5 is not available, go straight to LIKE fallback
+    if (!this.ftsEnabled) {
+      return this.fallbackSearch(query, limit, workspacePath);
+    }
 
     // Escape FTS5 special characters
     const escapedQuery = this.escapeFtsQuery(query);

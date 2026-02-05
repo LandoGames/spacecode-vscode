@@ -14,9 +14,25 @@ export class GptCliProvider implements AIProvider {
   private cliPath: string = 'codex';
   private _isConfigured = false;
   private _workspaceDir: string = '';
+  private _model: string = 'gpt-4o'; // Default model
 
   get isConfigured(): boolean {
     return this._isConfigured;
+  }
+
+  /**
+   * Set the model to use for API calls
+   */
+  setModel(model: string): void {
+    console.log(`[SpaceCode DEBUG] GptCli.setModel: ${model}`);
+    this._model = model;
+  }
+
+  /**
+   * Get the current model
+   */
+  getModel(): string {
+    return this._model;
   }
 
   setWorkspaceDir(dir: string): void {

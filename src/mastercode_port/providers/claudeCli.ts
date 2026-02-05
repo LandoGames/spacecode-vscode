@@ -23,8 +23,24 @@ export class ClaudeCliProvider implements AIProvider {
   private _isConfigured = false;
   private _workspaceDir: string = '';
   private _sessionId: string = '';
+  private _model: string = 'claude-sonnet-4-5'; // Default model
   // Track which sessions have been started (per session ID, not global)
   private _startedSessions: Set<string> = new Set();
+
+  /**
+   * Set the model to use for API calls
+   */
+  setModel(model: string): void {
+    console.log(`[SpaceCode DEBUG] ClaudeCli.setModel: ${model}`);
+    this._model = model;
+  }
+
+  /**
+   * Get the current model
+   */
+  getModel(): string {
+    return this._model;
+  }
 
   get isConfigured(): boolean {
     return this._isConfigured;
@@ -110,6 +126,12 @@ export class ClaudeCliProvider implements AIProvider {
   private getCliArgs(): string[] {
     const args: string[] = [];
     const workspaceDir = this.getWorkspaceDir();
+
+    // Add model selection
+    if (this._model) {
+      args.push('--model', this._model);
+      console.log(`[SpaceCode DEBUG] ClaudeCli using model: ${this._model}`);
+    }
 
     // Add workspace directory
     if (workspaceDir && workspaceDir !== process.env.HOME) {

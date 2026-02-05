@@ -34,6 +34,9 @@ export interface SpaceCodeSettings {
   showPanelBorders: boolean;
   verboseLogging: boolean;
 
+  // Project
+  projectComplexity: 'simple' | 'complex' | '';
+
   // First run
   hasCompletedFirstRun: boolean;
   firstRunStep: number;
@@ -65,6 +68,7 @@ const DEFAULT_SETTINGS: SpaceCodeSettings = {
   debugMode: false,
   showPanelBorders: false,
   verboseLogging: false,
+  projectComplexity: '',
   hasCompletedFirstRun: false,
   firstRunStep: 0
 };

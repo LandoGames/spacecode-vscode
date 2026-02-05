@@ -1,14 +1,19 @@
 /**
  * Coplay MCP Client for SpaceCode
  *
- * Uses MCPManager to connect to Coplay MCP server.
- * Connection: SpaceCode → MCPManager → Coplay MCP Server (stdio) → Unity Editor
+ * Spawns coplay-mcp-server as a child process and communicates via
+ * stdio JSON-RPC 2.0 (MCP protocol).
+ *
+ * Connection: SpaceCode → spawn(uvx coplay-mcp-server) → stdio → Unity Editor
  */
+
+// @ts-nocheck
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn, ChildProcess } from 'child_process';
 
 // ============================================
 // Types
@@ -72,10 +77,15 @@ export interface LogOptions {
 type MCPManagerType = {
   startServer(id: string): Promise<void>;
   stopServer(id: string): Promise<void>;
-  getConnection(id: string): { client: any; tools: any[] } | undefined;
-  callTool(serverId: string, toolName: string, args: Record<string, unknown>): Promise<any>;
-  getServer(id: string): any;
+  getServer(id: string): { id: string; status?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; [key: string]: any } | undefined;
+  launchInTerminal?(id: string): Promise<any>;
 };
+
+interface PendingRequest {
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 // ============================================
 // Coplay MCP Client
@@ -86,6 +96,15 @@ export class CoplayMCPClient {
   private mcpManager: MCPManagerType | null = null;
   private activeProject: string | null = null;
   private readonly SERVER_ID = 'coplay-mcp';
+
+  // Stdio transport state
+  private process: ChildProcess | null = null;
+  private requestId: number = 0;
+  private pendingRequests: Map<number, PendingRequest> = new Map();
+  private initialized: boolean = false;
+  private stdoutBuffer: string = '';
+  private connecting: boolean = false;
+  private readonly DEFAULT_TIMEOUT_MS = 30000;
 
   /**
    * Initialize with VSCode extension context and MCPManager
@@ -103,7 +122,7 @@ export class CoplayMCPClient {
   }
 
   /**
-   * Connect to Coplay MCP server via MCPManager
+   * Connect to Coplay MCP server by spawning the process and initializing the MCP session
    */
   async connect(): Promise<boolean> {
     if (!this.mcpManager) {
@@ -111,49 +130,153 @@ export class CoplayMCPClient {
       return false;
     }
 
-    try {
-      console.log('[CoplayMCP] Starting connection via MCPManager...');
+    // Already connected
+    if (this.process && !this.process.killed && this.initialized) {
+      return true;
+    }
 
-      // Check if server config exists
+    // Prevent concurrent connection attempts
+    if (this.connecting) {
+      return false;
+    }
+    this.connecting = true;
+
+    try {
+      // Get server config from MCPManager
       const server = this.mcpManager.getServer(this.SERVER_ID);
       if (!server) {
-        console.error('[CoplayMCP] Coplay MCP server not configured');
+        console.error('[CoplayMCP] Coplay MCP server not configured in ~/.claude.json');
         return false;
       }
 
-      // Start the server via MCPManager
+      if (!server.command) {
+        console.error('[CoplayMCP] No command configured for coplay-mcp server');
+        return false;
+      }
+
+      // Kill any existing process
+      this.killProcess();
+
+      console.log(`[CoplayMCP] Spawning: ${server.command} ${(server.args || []).join(' ')}`);
+
+      // Spawn the coplay-mcp-server process
+      this.process = spawn(server.command, server.args || [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ...(server.env || {}) },
+      });
+
+      if (!this.process.pid) {
+        console.error('[CoplayMCP] Failed to spawn process');
+        this.process = null;
+        return false;
+      }
+
+      console.log(`[CoplayMCP] Process spawned with PID: ${this.process.pid}`);
+
+      // Handle stdout — JSON-RPC responses come here
+      this.process.stdout!.on('data', (data: Buffer) => {
+        this.stdoutBuffer += data.toString();
+        this.processStdoutBuffer();
+      });
+
+      // Handle stderr — debug/log output
+      this.process.stderr!.on('data', (data: Buffer) => {
+        const msg = data.toString().trim();
+        if (msg) {
+          console.log('[CoplayMCP] stderr:', msg);
+        }
+      });
+
+      // Handle process exit
+      this.process.on('exit', (code, signal) => {
+        console.log(`[CoplayMCP] Process exited: code=${code}, signal=${signal}`);
+        this.initialized = false;
+        this.process = null;
+
+        // Reject all pending requests
+        for (const [, pending] of this.pendingRequests) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error(`Coplay MCP process exited (code=${code})`));
+        }
+        this.pendingRequests.clear();
+
+        // Update MCPManager status
+        if (this.mcpManager) {
+          this.mcpManager.stopServer(this.SERVER_ID).catch(() => {});
+        }
+      });
+
+      this.process.on('error', (err) => {
+        console.error('[CoplayMCP] Process error:', err.message);
+        this.killProcess();
+      });
+
+      // Initialize MCP session
+      const initResponse = await this.sendJsonRpc('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: {
+          name: 'spacecode-vscode',
+          version: '1.0.0'
+        }
+      }, 15000);
+
+      if (!initResponse.result?.protocolVersion) {
+        console.error('[CoplayMCP] MCP initialize failed — no protocolVersion in response:', initResponse);
+        this.killProcess();
+        return false;
+      }
+
+      // Send initialized notification (no response expected)
+      this.sendNotification('notifications/initialized', {});
+
+      this.initialized = true;
+      console.log(`[CoplayMCP] MCP session initialized (protocol: ${initResponse.result.protocolVersion})`);
+
+      // Update MCPManager status to running
       await this.mcpManager.startServer(this.SERVER_ID);
 
-      // Verify connection
-      const connection = this.mcpManager.getConnection(this.SERVER_ID);
-      if (!connection) {
-        console.error('[CoplayMCP] Failed to get connection after start');
-        return false;
-      }
-
-      console.log('[CoplayMCP] Connected successfully via MCPManager');
       return true;
     } catch (error) {
       console.error('[CoplayMCP] Connection failed:', error);
+      this.killProcess();
       return false;
+    } finally {
+      this.connecting = false;
     }
   }
 
   /**
-   * Disconnect from Coplay MCP server
+   * Disconnect: kill the child process
    */
   async disconnect(): Promise<void> {
+    this.killProcess();
     if (this.mcpManager) {
       await this.mcpManager.stopServer(this.SERVER_ID);
     }
   }
 
   /**
-   * Check if connected
+   * Check if connected (process alive AND MCP session initialized)
    */
   isConnected(): boolean {
-    if (!this.mcpManager) return false;
-    return !!this.mcpManager.getConnection(this.SERVER_ID);
+    return !!(this.process && !this.process.killed && this.initialized);
+  }
+
+  /**
+   * List available tools on the server
+   */
+  async listTools(): Promise<CoplayResult<any[]>> {
+    try {
+      await this.ensureConnected();
+      const response = await this.sendJsonRpc('tools/list', {});
+      if (response.error) {
+        return { success: false, error: response.error.message || 'Failed to list tools' };
+      }
+      return { success: true, data: response.result?.tools || [] };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
   }
 
   // ============================================
@@ -406,60 +529,49 @@ public static class RefreshUnity
   }
 
   // ============================================
-  // Internal: MCP Tool Calling
+  // Internal: Stdio JSON-RPC Transport
   // ============================================
 
+  /**
+   * Ensure the process is spawned and the MCP session is initialized
+   */
+  private async ensureConnected(): Promise<void> {
+    if (!this.isConnected()) {
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Failed to connect to Coplay MCP server');
+      }
+    }
+  }
+
+  /**
+   * Call an MCP tool via the stdio transport
+   */
   private async callTool(toolName: string, args: Record<string, unknown>): Promise<CoplayResult> {
     try {
       if (!this.mcpManager) {
-        return {
-          success: false,
-          error: 'MCPManager not initialized'
-        };
+        return { success: false, error: 'MCPManager not initialized' };
       }
 
-      // Ensure connected
-      if (!this.isConnected()) {
-        const connected = await this.connect();
-        if (!connected) {
-          return {
-            success: false,
-            error: 'Failed to connect to Coplay MCP server. Click "Launch" in MCP settings first.'
-          };
-        }
-      }
+      await this.ensureConnected();
 
       console.log(`[CoplayMCP] Calling tool: ${toolName}`, args);
 
-      // Call the tool via MCPManager
-      const result = await this.mcpManager.callTool(this.SERVER_ID, toolName, args);
+      const response = await this.sendJsonRpc('tools/call', {
+        name: toolName,
+        arguments: args
+      });
 
-      console.log(`[CoplayMCP] Tool result:`, result);
-
-      // Parse result
-      if (result.isError) {
+      if (response.error) {
         return {
           success: false,
-          error: typeof result.content === 'string' ? result.content : JSON.stringify(result.content)
+          error: response.error.message || response.error.data || 'Tool call failed'
         };
-      }
-
-      // Extract text content
-      let data: any = result.content;
-      if (Array.isArray(result.content)) {
-        const textContent = result.content.find((c: any) => c.type === 'text');
-        if (textContent) {
-          try {
-            data = JSON.parse(textContent.text);
-          } catch {
-            data = textContent.text;
-          }
-        }
       }
 
       return {
         success: true,
-        data
+        data: response.result?.content || response.result
       };
     } catch (error) {
       console.error(`[CoplayMCP] Tool call failed:`, error);
@@ -468,6 +580,114 @@ public static class RefreshUnity
         error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
+  }
+
+  /**
+   * Send a JSON-RPC request and wait for the response
+   */
+  private sendJsonRpc(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.process || !this.process.stdin || this.process.killed) {
+        reject(new Error('Coplay MCP process not running'));
+        return;
+      }
+
+      const id = ++this.requestId;
+      const message = JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method,
+        params
+      }) + '\n';
+
+      const timeout = timeoutMs || this.DEFAULT_TIMEOUT_MS;
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Coplay MCP request '${method}' timed out after ${timeout}ms`));
+      }, timeout);
+
+      this.pendingRequests.set(id, { resolve, reject, timer });
+
+      this.process.stdin.write(message, (err) => {
+        if (err) {
+          clearTimeout(timer);
+          this.pendingRequests.delete(id);
+          reject(new Error(`Failed to write to Coplay MCP stdin: ${err.message}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Send a JSON-RPC notification (no response expected)
+   */
+  private sendNotification(method: string, params: Record<string, unknown>): void {
+    if (!this.process || !this.process.stdin || this.process.killed) return;
+
+    const message = JSON.stringify({
+      jsonrpc: '2.0',
+      method,
+      params
+    }) + '\n';
+
+    this.process.stdin.write(message);
+  }
+
+  /**
+   * Process buffered stdout data, extracting complete JSON-RPC messages
+   */
+  private processStdoutBuffer(): void {
+    const lines = this.stdoutBuffer.split('\n');
+    // Keep the last (possibly incomplete) line in the buffer
+    this.stdoutBuffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      try {
+        const message = JSON.parse(trimmed);
+
+        // JSON-RPC response (has id)
+        if (message.id !== undefined && this.pendingRequests.has(message.id)) {
+          const pending = this.pendingRequests.get(message.id)!;
+          clearTimeout(pending.timer);
+          this.pendingRequests.delete(message.id);
+          pending.resolve(message);
+        }
+        // JSON-RPC notification (no id) — log for debugging
+        else if (message.method) {
+          console.log(`[CoplayMCP] Notification: ${message.method}`);
+        }
+      } catch {
+        // Non-JSON output from the process (startup logs, etc.)
+        console.log('[CoplayMCP] stdout:', trimmed);
+      }
+    }
+  }
+
+  /**
+   * Kill the child process and clean up
+   */
+  private killProcess(): void {
+    if (this.process) {
+      try {
+        this.process.kill('SIGTERM');
+      } catch {
+        // Process may already be dead
+      }
+      this.process = null;
+    }
+
+    this.initialized = false;
+    this.stdoutBuffer = '';
+
+    // Reject all pending requests
+    for (const [, pending] of this.pendingRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Coplay MCP process killed'));
+    }
+    this.pendingRequests.clear();
   }
 }
 

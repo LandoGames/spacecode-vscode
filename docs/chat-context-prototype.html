@@ -1,0 +1,2250 @@
+<!--
+  ══════════════════════════════════════════════════════════════════════
+  CHAT CONTEXT VISUALIZATION PROTOTYPE — SpaceCode Extension
+  ══════════════════════════════════════════════════════════════════════
+
+  PURPOSE: Prototype for visualizing AI chat context assembly.
+  Shows the user exactly what data the AI receives with each message:
+    - Active sector rules
+    - Knowledge Base entries (relevance-matched)
+    - Skills / injected prompts
+    - File context (open files, selections)
+    - Conversation history (turns + summarized)
+    - Project info (Unity version, platform, etc.)
+    - System persona
+
+  LAYERS:
+    1. Context Ribbon  — always-visible chips above input
+    2. Token Budget Bar — thin segmented bar showing context window usage
+    3. Message Metadata — expandable "receipt" below each AI response
+    4. Chip Detail Panels — click a chip to see full detail inline
+
+  INTEGRATION NOTE:
+    When connected to SpaceCode AI, the context data comes from:
+      - chatContextBuilder.ts (assembles the full prompt)
+      - SectorManager.detectSector(activeFile) → sector rules
+      - KB embedder search results → relevant entries
+      - Active skill registry → skill prompts
+      - vscode.window.activeTextEditor → file context
+      - Chat session history → turns + summaries
+
+  ══════════════════════════════════════════════════════════════════════
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SpaceCode — Chat Context Prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0e17;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #c8d6e5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── Top bar ─── */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    background: rgba(15, 22, 40, 0.95);
+    border-bottom: 1px solid rgba(100, 150, 200, 0.08);
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .top-bar-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(200, 215, 235, 0.9);
+    letter-spacing: 0.5px;
+  }
+  .top-bar-model {
+    font-size: 11px;
+    color: rgba(150, 180, 220, 0.5);
+    margin-left: auto;
+  }
+  .session-pill {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    color: rgba(99, 102, 241, 0.8);
+  }
+
+  /* ─── Chat area ─── */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chat-area::-webkit-scrollbar { width: 6px; }
+  .chat-area::-webkit-scrollbar-track { background: transparent; }
+  .chat-area::-webkit-scrollbar-thumb { background: rgba(100, 150, 200, 0.15); border-radius: 3px; }
+
+  /* ─── Messages ─── */
+  .msg {
+    max-width: 92%;
+    animation: msgIn 0.3s ease;
+  }
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg-user {
+    align-self: flex-end;
+  }
+  .msg-ai {
+    align-self: flex-start;
+  }
+  .msg-label {
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.35);
+    margin-bottom: 4px;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .msg-label .sector-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .msg-bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .msg-user .msg-bubble {
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-bottom-right-radius: 4px;
+    color: rgba(200, 215, 235, 0.9);
+  }
+  .msg-ai .msg-bubble {
+    background: rgba(20, 28, 45, 0.8);
+    border: 1px solid rgba(100, 150, 200, 0.1);
+    border-bottom-left-radius: 4px;
+    color: rgba(200, 215, 235, 0.85);
+  }
+  .msg-ai .msg-bubble code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #a78bfa;
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+  .msg-ai .msg-bubble .code-block {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(100, 150, 200, 0.08);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    font-size: 12px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    color: rgba(200, 215, 235, 0.75);
+    line-height: 1.5;
+    overflow-x: auto;
+  }
+
+  /* ─── Context injection indicator (between label and bubble) ─── */
+  .msg-context-injected {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+  }
+  .ctx-inject-chip {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: rgba(100, 150, 200, 0.06);
+    border: 1px solid rgba(100, 150, 200, 0.1);
+    color: rgba(150, 180, 220, 0.4);
+    white-space: nowrap;
+  }
+  .ctx-inject-chip.sector { border-color: rgba(99, 102, 241, 0.2); color: rgba(99, 102, 241, 0.6); }
+  .ctx-inject-chip.kb { border-color: rgba(34, 197, 94, 0.2); color: rgba(34, 197, 94, 0.6); }
+  .ctx-inject-chip.skill { border-color: rgba(245, 158, 11, 0.2); color: rgba(245, 158, 11, 0.6); }
+  .ctx-inject-chip.file { border-color: rgba(59, 130, 246, 0.2); color: rgba(59, 130, 246, 0.6); }
+  .ctx-inject-chip.project { border-color: rgba(236, 72, 153, 0.2); color: rgba(236, 72, 153, 0.6); }
+
+  /* ─── Message metadata (expandable receipt) ─── */
+  .msg-meta {
+    margin-top: 4px;
+    padding: 0 4px;
+  }
+  .msg-meta-summary {
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    transition: color 0.2s;
+    user-select: none;
+  }
+  .msg-meta-summary:hover {
+    color: rgba(150, 180, 220, 0.55);
+  }
+  .msg-meta-summary .meta-expand {
+    font-size: 8px;
+    transition: transform 0.2s;
+  }
+  .msg-meta-summary.open .meta-expand {
+    transform: rotate(90deg);
+  }
+  .msg-meta-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s;
+    opacity: 0;
+  }
+  .msg-meta-detail.open {
+    max-height: 400px;
+    opacity: 1;
+  }
+  .meta-table {
+    background: rgba(10, 14, 23, 0.6);
+    border: 1px solid rgba(100, 150, 200, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 4px 0 8px;
+    font-size: 11px;
+  }
+  .meta-row {
+    display: flex;
+    align-items: flex-start;
+    padding: 4px 0;
+    gap: 8px;
+    border-bottom: 1px solid rgba(100, 150, 200, 0.04);
+  }
+  .meta-row:last-child { border-bottom: none; }
+  .meta-label {
+    color: rgba(150, 180, 220, 0.4);
+    min-width: 70px;
+    flex-shrink: 0;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding-top: 1px;
+  }
+  .meta-value {
+    color: rgba(200, 215, 235, 0.65);
+    flex: 1;
+    line-height: 1.4;
+  }
+  .meta-value .tk {
+    color: rgba(150, 180, 220, 0.35);
+    font-size: 10px;
+  }
+  .meta-value .kb-entry {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+  .meta-value .kb-match {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 6px;
+    background: rgba(34, 197, 94, 0.08);
+    color: rgba(34, 197, 94, 0.6);
+    border: 1px solid rgba(34, 197, 94, 0.15);
+  }
+  .meta-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 6px;
+    margin-top: 4px;
+    border-top: 1px solid rgba(100, 150, 200, 0.06);
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.3);
+  }
+  .meta-footer span { white-space: nowrap; }
+
+  /* ─── Token Budget Bar ─── */
+  .token-bar-wrap {
+    padding: 0 16px;
+    flex-shrink: 0;
+  }
+  .token-bar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0 3px;
+  }
+  .token-bar-label {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.25);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .token-bar-value {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.35);
+  }
+  .token-bar {
+    height: 6px;
+    background: rgba(100, 150, 200, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .token-seg {
+    height: 100%;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+  }
+  .token-seg.sector { background: rgba(99, 102, 241, 0.5); }
+  .token-seg.kb { background: rgba(34, 197, 94, 0.5); }
+  .token-seg.skill { background: rgba(245, 158, 11, 0.5); }
+  .token-seg.files { background: rgba(59, 130, 246, 0.5); }
+  .token-seg.history { background: rgba(168, 85, 247, 0.4); }
+  .token-seg.project { background: rgba(236, 72, 153, 0.4); }
+  .token-seg.persona { background: rgba(100, 150, 200, 0.2); }
+  .token-bar-legend {
+    display: flex;
+    gap: 10px;
+    padding: 0 0 6px;
+    flex-wrap: wrap;
+  }
+  .token-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.3);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .token-legend-item:hover { color: rgba(150, 180, 220, 0.55); }
+  .token-legend-dot {
+    width: 6px; height: 6px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  /* ─── Context Ribbon ─── */
+  .context-ribbon {
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    border-top: 1px solid rgba(100, 150, 200, 0.06);
+    flex-shrink: 0;
+    min-height: 40px;
+  }
+  .ribbon-label {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 2px;
+  }
+  .ctx-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    position: relative;
+    border: 1px solid transparent;
+  }
+  .ctx-chip:hover {
+    transform: translateY(-1px);
+  }
+  .ctx-chip .chip-icon {
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .ctx-chip .chip-label {
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .ctx-chip .chip-count {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+  .ctx-chip .chip-x {
+    font-size: 10px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    margin-left: -2px;
+    color: inherit;
+  }
+  .ctx-chip:hover .chip-x { opacity: 0.5; }
+  .ctx-chip:hover .chip-x:hover { opacity: 1; }
+
+  /* Chip color variants */
+  .ctx-chip.sector {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: rgba(129, 140, 248, 0.85);
+  }
+  .ctx-chip.sector:hover { background: rgba(99, 102, 241, 0.18); }
+  .ctx-chip.sector .chip-count { background: rgba(99, 102, 241, 0.2); }
+
+  .ctx-chip.kb {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.18);
+    color: rgba(74, 222, 128, 0.85);
+  }
+  .ctx-chip.kb:hover { background: rgba(34, 197, 94, 0.15); }
+  .ctx-chip.kb .chip-count { background: rgba(34, 197, 94, 0.15); }
+
+  .ctx-chip.skill {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.2);
+    color: rgba(251, 191, 36, 0.85);
+  }
+  .ctx-chip.skill:hover { background: rgba(245, 158, 11, 0.15); }
+
+  .ctx-chip.files {
+    background: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.18);
+    color: rgba(96, 165, 250, 0.85);
+  }
+  .ctx-chip.files:hover { background: rgba(59, 130, 246, 0.15); }
+  .ctx-chip.files .chip-count { background: rgba(59, 130, 246, 0.15); }
+
+  .ctx-chip.history {
+    background: rgba(168, 85, 247, 0.08);
+    border-color: rgba(168, 85, 247, 0.18);
+    color: rgba(192, 132, 252, 0.85);
+  }
+  .ctx-chip.history:hover { background: rgba(168, 85, 247, 0.15); }
+  .ctx-chip.history .chip-count { background: rgba(168, 85, 247, 0.15); }
+
+  .ctx-chip.project {
+    background: rgba(236, 72, 153, 0.07);
+    border-color: rgba(236, 72, 153, 0.18);
+    color: rgba(244, 114, 182, 0.85);
+  }
+  .ctx-chip.project:hover { background: rgba(236, 72, 153, 0.14); }
+
+  /* Chip active (expanded) */
+  .ctx-chip.active {
+    border-style: solid;
+    box-shadow: 0 0 12px rgba(100, 150, 200, 0.08);
+  }
+
+  /* ─── Add Context (+) button ─── */
+  .ctx-add-btn {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(100, 150, 200, 0.06);
+    border: 1px dashed rgba(100, 150, 200, 0.15);
+    color: rgba(150, 180, 220, 0.3);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .ctx-add-btn:hover {
+    background: rgba(100, 150, 200, 0.12);
+    border-color: rgba(100, 150, 200, 0.25);
+    color: rgba(150, 180, 220, 0.6);
+    transform: translateY(-1px);
+  }
+  .ctx-add-btn.hidden { display: none; }
+
+  /* Add context dropdown */
+  .add-ctx-dropdown {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    background: rgba(12, 17, 30, 0.97);
+    border: 1px solid rgba(100, 150, 200, 0.12);
+    border-radius: 10px;
+    padding: 8px 0;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    display: none;
+    animation: chipDetailIn 0.2s ease;
+    backdrop-filter: blur(12px);
+  }
+  .add-ctx-dropdown.visible { display: block; }
+  .add-ctx-dropdown-title {
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 14px 8px;
+    border-bottom: 1px solid rgba(100, 150, 200, 0.06);
+    margin-bottom: 4px;
+  }
+  .add-ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: rgba(200, 215, 235, 0.6);
+  }
+  .add-ctx-item:hover {
+    background: rgba(100, 150, 200, 0.08);
+    color: rgba(200, 215, 235, 0.85);
+  }
+  .add-ctx-item .add-icon {
+    font-size: 14px;
+    width: 22px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .add-ctx-item .add-label { flex: 1; }
+  .add-ctx-item .add-tk {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.3);
+  }
+  .add-ctx-empty {
+    padding: 12px 14px;
+    font-size: 11px;
+    color: rgba(150, 180, 220, 0.25);
+    text-align: center;
+    font-style: italic;
+  }
+
+  /* Chip remove animation */
+  @keyframes chipOut {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(0.8); }
+  }
+  .ctx-chip.removing {
+    animation: chipOut 0.2s ease forwards;
+    pointer-events: none;
+  }
+  /* Chip restore animation */
+  @keyframes chipRestore {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .ctx-chip.restoring {
+    animation: chipRestore 0.25s ease;
+  }
+
+  /* ─── Chip Detail Dropdown ─── */
+  .chip-detail {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    min-width: 280px;
+    max-width: 360px;
+    background: rgba(12, 17, 30, 0.97);
+    border: 1px solid rgba(100, 150, 200, 0.12);
+    border-radius: 10px;
+    padding: 12px;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    display: none;
+    animation: chipDetailIn 0.2s ease;
+    backdrop-filter: blur(12px);
+  }
+  @keyframes chipDetailIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .chip-detail.visible { display: block; }
+  .chip-detail-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(200, 215, 235, 0.7);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(100, 150, 200, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .chip-detail-title .detail-tk {
+    font-weight: 400;
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.35);
+  }
+  .chip-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: rgba(200, 215, 235, 0.6);
+    transition: background 0.15s;
+  }
+  .chip-detail-row:hover {
+    background: rgba(100, 150, 200, 0.06);
+  }
+  .chip-detail-row .row-icon {
+    font-size: 12px;
+    opacity: 0.5;
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+  }
+  .chip-detail-row .row-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chip-detail-row .row-meta {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.3);
+    white-space: nowrap;
+  }
+  .chip-detail-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px;
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.4);
+    cursor: pointer;
+    border-radius: 6px;
+    margin-top: 4px;
+    transition: all 0.15s;
+  }
+  .chip-detail-toggle:hover {
+    background: rgba(100, 150, 200, 0.06);
+    color: rgba(150, 180, 220, 0.6);
+  }
+  .toggle-switch {
+    width: 28px; height: 14px;
+    background: rgba(100, 150, 200, 0.15);
+    border-radius: 7px;
+    position: relative;
+    transition: background 0.2s;
+  }
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: rgba(200, 215, 235, 0.5);
+    top: 2px; left: 2px;
+    transition: transform 0.2s;
+  }
+  .toggle-switch.on {
+    background: rgba(34, 197, 94, 0.35);
+  }
+  .toggle-switch.on::after {
+    transform: translateX(14px);
+    background: rgba(74, 222, 128, 0.9);
+  }
+
+  /* Rules preview in chip detail */
+  .rules-preview {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(100, 150, 200, 0.06);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 8px;
+    font-size: 10px;
+    font-family: 'SF Mono', 'Cascadia Code', monospace;
+    color: rgba(200, 215, 235, 0.45);
+    line-height: 1.5;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .rules-preview .kw { color: rgba(239, 68, 68, 0.7); font-weight: 600; }
+
+  /* ─── Input area ─── */
+  .input-area {
+    padding: 8px 16px 14px;
+    flex-shrink: 0;
+  }
+  .input-wrap {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    background: rgba(15, 22, 40, 0.6);
+    border: 1px solid rgba(100, 150, 200, 0.12);
+    border-radius: 12px;
+    padding: 10px 14px;
+    transition: border-color 0.2s;
+  }
+  .input-wrap:focus-within {
+    border-color: rgba(99, 102, 241, 0.35);
+  }
+  .input-wrap textarea {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: rgba(200, 215, 235, 0.9);
+    font-size: 13px;
+    font-family: inherit;
+    resize: none;
+    line-height: 1.5;
+    max-height: 120px;
+  }
+  .input-wrap textarea::placeholder {
+    color: rgba(150, 180, 220, 0.25);
+  }
+  .send-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: rgba(99, 102, 241, 0.2);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    color: rgba(129, 140, 248, 0.8);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .send-btn:hover {
+    background: rgba(99, 102, 241, 0.35);
+    transform: translateY(-1px);
+  }
+
+  /* ─── Overlay for closing chip details ─── */
+  .chip-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: none;
+  }
+  .chip-overlay.visible { display: block; }
+
+  /* ─── Typing indicator ─── */
+  .typing-indicator {
+    display: none;
+    align-self: flex-start;
+    padding: 12px 18px;
+    background: rgba(20, 28, 45, 0.6);
+    border: 1px solid rgba(100, 150, 200, 0.08);
+    border-radius: 12px;
+    border-bottom-left-radius: 4px;
+    gap: 4px;
+    align-items: center;
+  }
+  .typing-indicator.active { display: flex; }
+  .typing-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(150, 180, 220, 0.3);
+    animation: typingPulse 1.4s ease-in-out infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typingPulse {
+    0%, 60%, 100% { opacity: 0.3; transform: scale(1); }
+    30% { opacity: 1; transform: scale(1.2); }
+  }
+
+  /* ─── Block Panel (slide-up flyout) ─── */
+  .block-panel-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .block-panel-scrim.open { opacity: 1; pointer-events: auto; }
+
+  .block-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    max-height: 75vh;
+    background: rgba(12, 17, 30, 0.98);
+    border-top: 1px solid rgba(100, 150, 200, 0.12);
+    border-radius: 16px 16px 0 0;
+    z-index: 210;
+    transform: translateY(100%);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+  }
+  .block-panel.open { transform: translateY(0); }
+
+  .block-panel-handle {
+    width: 36px; height: 4px;
+    background: rgba(100, 150, 200, 0.2);
+    border-radius: 2px;
+    margin: 10px auto 0;
+    flex-shrink: 0;
+  }
+  .block-panel-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px 10px;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .block-panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(200, 215, 235, 0.85);
+    flex: 1;
+  }
+  .block-panel-budget {
+    font-size: 11px;
+    color: rgba(150, 180, 220, 0.4);
+  }
+  .block-panel-close {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(100, 150, 200, 0.08);
+    border: none;
+    color: rgba(150, 180, 220, 0.4);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  .block-panel-close:hover {
+    background: rgba(100, 150, 200, 0.15);
+    color: rgba(200, 215, 235, 0.7);
+  }
+
+  .block-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 20px 20px;
+  }
+  .block-panel-body::-webkit-scrollbar { width: 5px; }
+  .block-panel-body::-webkit-scrollbar-track { background: transparent; }
+  .block-panel-body::-webkit-scrollbar-thumb { background: rgba(100, 150, 200, 0.12); border-radius: 3px; }
+
+  .block-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: rgba(150, 180, 220, 0.3);
+    padding: 14px 0 8px;
+    border-bottom: 1px solid rgba(100, 150, 200, 0.06);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .block-section-title .section-tk {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.2);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .block-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 8px;
+    border-radius: 8px;
+    transition: background 0.15s;
+    cursor: default;
+  }
+  .block-row:hover { background: rgba(100, 150, 200, 0.04); }
+  .block-row .blk-icon {
+    font-size: 15px;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .block-row .blk-info { flex: 1; min-width: 0; }
+  .block-row .blk-name {
+    font-size: 12px;
+    color: rgba(200, 215, 235, 0.75);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .block-row .blk-meta {
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .blk-trigger {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .blk-trigger.auto {
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.15);
+    color: rgba(34, 197, 94, 0.6);
+  }
+  .blk-trigger.manual {
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    color: rgba(59, 130, 246, 0.6);
+  }
+  .blk-trigger.always {
+    background: rgba(168, 85, 247, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.15);
+    color: rgba(168, 85, 247, 0.6);
+  }
+  .blk-trigger.custom {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.15);
+    color: rgba(245, 158, 11, 0.6);
+  }
+  .blk-trigger.configured {
+    background: rgba(236, 72, 153, 0.08);
+    border: 1px solid rgba(236, 72, 153, 0.15);
+    color: rgba(236, 72, 153, 0.6);
+  }
+  .block-row .blk-tokens {
+    font-size: 10px;
+    color: rgba(150, 180, 220, 0.3);
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 50px;
+    text-align: right;
+  }
+  .block-row .blk-toggle {
+    width: 32px; height: 16px;
+    background: rgba(100, 150, 200, 0.15);
+    border-radius: 8px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .block-row .blk-toggle::after {
+    content: '';
+    position: absolute;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: rgba(200, 215, 235, 0.4);
+    top: 2px; left: 2px;
+    transition: all 0.2s;
+  }
+  .block-row .blk-toggle.on { background: rgba(34, 197, 94, 0.35); }
+  .block-row .blk-toggle.on::after {
+    transform: translateX(16px);
+    background: rgba(74, 222, 128, 0.9);
+  }
+  .block-row.inactive .blk-name { color: rgba(150, 180, 220, 0.35); }
+  .block-row.inactive .blk-icon { opacity: 0.3; }
+
+  .block-row .blk-pin {
+    font-size: 11px;
+    opacity: 0.2;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+  .block-row .blk-pin:hover { opacity: 0.6; }
+  .block-row .blk-pin.pinned { opacity: 0.8; color: rgba(245, 158, 11, 0.8); }
+
+  .block-row .blk-priority {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.2);
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  /* Custom block creation */
+  .custom-block-add {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: rgba(150, 180, 220, 0.35);
+    font-size: 12px;
+    transition: all 0.15s;
+    border: 1px dashed rgba(100, 150, 200, 0.1);
+    margin-top: 6px;
+  }
+  .custom-block-add:hover {
+    background: rgba(100, 150, 200, 0.04);
+    color: rgba(150, 180, 220, 0.55);
+    border-color: rgba(100, 150, 200, 0.18);
+  }
+
+  /* Blocks button in ribbon */
+  .blocks-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    cursor: pointer;
+    background: rgba(100, 150, 200, 0.06);
+    border: 1px solid rgba(100, 150, 200, 0.12);
+    color: rgba(150, 180, 220, 0.45);
+    transition: all 0.2s;
+    margin-left: auto;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .blocks-btn:hover {
+    background: rgba(100, 150, 200, 0.12);
+    color: rgba(150, 180, 220, 0.7);
+    border-color: rgba(100, 150, 200, 0.2);
+  }
+
+  /* Priority section */
+  .priority-list {
+    counter-reset: priority;
+  }
+  .priority-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: rgba(200, 215, 235, 0.5);
+    counter-increment: priority;
+    transition: background 0.15s;
+  }
+  .priority-item:hover { background: rgba(100, 150, 200, 0.04); }
+  .priority-item::before {
+    content: counter(priority) ".";
+    color: rgba(150, 180, 220, 0.25);
+    font-size: 10px;
+    width: 18px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .priority-item .pri-icon { font-size: 12px; opacity: 0.5; }
+  .priority-item .pri-label { flex: 1; }
+  .priority-item .pri-note {
+    font-size: 9px;
+    color: rgba(150, 180, 220, 0.2);
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="top-bar">
+  <div class="top-bar-title">SPACECODE CHAT</div>
+  <div class="session-pill">Session #4</div>
+  <div class="top-bar-model">claude-sonnet-4 &middot; 128k ctx</div>
+</div>
+
+<!-- Chat messages -->
+<div class="chat-area" id="chatArea">
+  <!-- Messages get rendered here -->
+</div>
+
+<!-- Typing indicator -->
+<div class="typing-indicator" id="typingIndicator">
+  <div class="typing-dot"></div>
+  <div class="typing-dot"></div>
+  <div class="typing-dot"></div>
+</div>
+
+<!-- Token budget bar -->
+<div class="token-bar-wrap">
+  <div class="token-bar-header">
+    <span class="token-bar-label">Context Window</span>
+    <span class="token-bar-value" id="tokenBarValue">12,340 / 128,000 tokens</span>
+  </div>
+  <div class="token-bar" id="tokenBar">
+    <!-- Segments rendered by JS -->
+  </div>
+  <div class="token-bar-legend" id="tokenLegend">
+    <!-- Legend items rendered by JS -->
+  </div>
+</div>
+
+<!-- Context Ribbon -->
+<div class="context-ribbon" id="contextRibbon">
+  <span class="ribbon-label">Context</span>
+  <!-- Chips rendered by JS -->
+</div>
+
+<!-- Overlay for closing chip details -->
+<div class="chip-overlay" id="chipOverlay"></div>
+
+<!-- Input area -->
+<div class="input-area">
+  <div class="input-wrap">
+    <textarea rows="1" placeholder="Ask about your project..." id="chatInput"></textarea>
+    <div class="send-btn" id="sendBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- Block Panel (slide-up flyout) -->
+<div class="block-panel-scrim" id="blockScrim"></div>
+<div class="block-panel" id="blockPanel">
+  <div class="block-panel-handle"></div>
+  <div class="block-panel-header">
+    <div class="block-panel-title">Context Blocks</div>
+    <div class="block-panel-budget" id="blockBudget"></div>
+    <div class="block-panel-close" id="blockPanelClose">&times;</div>
+  </div>
+  <div class="block-panel-body" id="blockPanelBody">
+    <!-- Rendered by JS -->
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// SIMULATED CONTEXT STATE
+// In production this comes from chatContextBuilder.ts
+// ══════════════════════════════════════════════════════════════
+
+const CONTEXT_MODEL_LIMIT = 128000;
+
+// Current active context (mutable — chips can toggle)
+const activeContext = {
+  sector: {
+    active: true,
+    id: 'core',
+    name: 'CORE',
+    color: '#6366f1',
+    tokens: 340,
+    rules: `You are in CORE sector \u2014 the foundation layer.
+- NEVER add Unity-specific dependencies here (keep pure C#)
+- All types must be serializable or interfaces
+- Changes here propagate to ALL sectors \u2014 be careful
+- Use readonly structs for ViewModels
+- No MonoBehaviour allowed in core types`,
+    allowedDeps: [],
+    approvalRequired: true,
+  },
+  kb: {
+    active: true,
+    entries: [
+      { name: 'architecture-overview.md', match: 94, tokens: 580 },
+      { name: 'coding-patterns.md', match: 82, tokens: 420 },
+      { name: 'unity-conventions.md', match: 71, tokens: 310 },
+    ],
+    totalTokens: 1310,
+  },
+  skill: {
+    active: false,
+    name: null,
+    tokens: 0,
+  },
+  files: {
+    active: true,
+    list: [
+      { name: 'SectorConfig.ts', type: 'open', tokens: 890 },
+      { name: 'SectorManager.ts', type: 'open', tokens: 640 },
+      { name: 'chatContextBuilder.ts', type: 'recent', tokens: 420 },
+    ],
+    totalTokens: 1950,
+  },
+  history: {
+    active: true,
+    turns: 8,
+    summarized: 4,
+    tokens: 2400,
+  },
+  project: {
+    active: true,
+    info: {
+      engine: 'Unity 6000.1.2f1',
+      platform: 'macOS / iOS / Android',
+      lang: 'C# (.NET Standard 2.1)',
+      projectName: 'Spines RPG',
+      buildTarget: 'iOS',
+    },
+    tokens: 180,
+  },
+  persona: {
+    active: true,
+    name: 'SpaceCode Engineer',
+    tokens: 350,
+  },
+};
+
+function getTotalTokens() {
+  let total = 0;
+  if (activeContext.sector.active) total += activeContext.sector.tokens;
+  if (activeContext.kb.active) total += activeContext.kb.totalTokens;
+  if (activeContext.skill.active) total += activeContext.skill.tokens;
+  if (activeContext.files.active) total += activeContext.files.totalTokens;
+  if (activeContext.history.active) total += activeContext.history.tokens;
+  if (activeContext.project.active) total += activeContext.project.tokens;
+  if (activeContext.persona.active) total += activeContext.persona.tokens;
+  return total;
+}
+
+// ══════════════════════════════════════════════════════════════
+// SIMULATED CHAT MESSAGES
+// Each message records the context snapshot at send time
+// ══════════════════════════════════════════════════════════════
+
+const messages = [
+  {
+    role: 'user',
+    text: 'What is the architecture of the sector system?',
+  },
+  {
+    role: 'ai',
+    text: `The sector system is organized around the <code>SectorManager</code> class in <code>SectorConfig.ts</code>. Each sector defines:
+
+<div class="code-block">interface Sector {
+  id: string;        // unique key
+  name: string;      // display name (e.g. "CORE")
+  paths: string[];   // glob patterns for file matching
+  rules: string;     // AI context rules
+  dependencies: string[];
+  approvalRequired: boolean;
+}</div>
+
+Sectors map to architectural boundaries. The <code>detectSector(filePath)</code> method matches a file to its sector using glob patterns. Dependencies between sectors are enforced via asmdef files in Unity.
+
+Key design decisions:
+- Sectors are defined in <code>.spacecode/sectors.yml</code> (YAML for hand-editing)
+- Each sector carries its own AI rules that get injected into chat context
+- The <code>buildContextRules()</code> method assembles rules for all affected sectors`,
+    context: {
+      sector: { name: 'CORE', color: '#6366f1', tokens: 340 },
+      kb: [
+        { name: 'architecture-overview.md', match: 94, tokens: 580 },
+        { name: 'coding-patterns.md', match: 82, tokens: 420 },
+      ],
+      files: [
+        { name: 'SectorConfig.ts', tokens: 890 },
+        { name: 'SectorManager.ts', tokens: 640 },
+      ],
+      history: { turns: 2, summarized: 0, tokens: 450 },
+      project: { tokens: 180 },
+      persona: { tokens: 350 },
+      skill: null,
+      totalTokens: 3850,
+      outputTokens: 847,
+      latency: 1.2,
+      model: 'claude-sonnet-4',
+    },
+  },
+  {
+    role: 'user',
+    text: 'Can you add a new sector for networking/multiplayer code?',
+  },
+  {
+    role: 'ai',
+    text: `Since you're in the <strong>CORE</strong> sector (approval required), adding a new sector that depends on CORE will need careful consideration.
+
+Here's the sector definition to add to <code>.spacecode/sectors.yml</code>:
+
+<div class="code-block">- id: network
+  name: RELAY
+  icon: wifi
+  color: "#0ea5e9"
+  description: "Multiplayer, netcode, server communication"
+  paths:
+    - "**/Network/**"
+    - "**/Multiplayer/**"
+    - "**/Netcode/**"
+  dependencies: [core, persistence]
+  approvalRequired: false
+  enforced: true
+  rules: |
+    You are in RELAY sector \u2014 networking systems.
+    - All network messages must be serializable
+    - Use NetworkVariable for synced state
+    - Never trust client-side data
+    - Rate-limit RPC calls per client</div>
+
+This sector depends on <code>core</code> (for shared types) and <code>persistence</code> (for save data sync). The blast radius is contained \u2014 no existing sectors would depend on RELAY initially.
+
+\u26a0 Note: Adding the <code>core</code> dependency means RELAY inherits CORE's strict rules about pure C# and no MonoBehaviour in shared types.`,
+    context: {
+      sector: { name: 'CORE', color: '#6366f1', tokens: 340 },
+      kb: [
+        { name: 'architecture-overview.md', match: 94, tokens: 580 },
+        { name: 'unity-conventions.md', match: 71, tokens: 310 },
+      ],
+      files: [
+        { name: 'SectorConfig.ts', tokens: 890 },
+        { name: 'SectorManager.ts', tokens: 640 },
+        { name: 'chatContextBuilder.ts', tokens: 420 },
+      ],
+      history: { turns: 4, summarized: 0, tokens: 1200 },
+      project: { tokens: 180 },
+      persona: { tokens: 350 },
+      skill: null,
+      totalTokens: 5710,
+      outputTokens: 1240,
+      latency: 1.8,
+      model: 'claude-sonnet-4',
+    },
+  },
+  {
+    role: 'user',
+    text: 'Now switch to ARMORY sector and show me the combat violations',
+  },
+  {
+    role: 'ai',
+    text: `Switched to <strong>ARMORY</strong> sector (combat systems).
+
+Current violations detected:
+
+<div class="code-block">\u2717 ARMORY \u2192 BRIDGE-UI (not in allowed list)
+  File: Combat/DamagePopup.cs
+  Fix: Move UI logic to BRIDGE-UI sector, keep only
+       IDamageDisplay interface in ARMORY
+
+\u2717 ARMORY \u2192 NAVIGATION (not in allowed list)
+  File: Combat/ZoneBuffManager.cs
+  Fix: Use event bus \u2014 ZoneBuffManager should listen
+       for zone events, not reference World/ directly</div>
+
+Both violations are boundary crossings where combat code directly references other sectors instead of going through interfaces in CORE. The DamagePopup one is the most common pattern \u2014 UI code leaking into gameplay systems.
+
+Want me to generate the fix for either violation?`,
+    context: {
+      sector: { name: 'ARMORY', color: '#ef4444', tokens: 380 },
+      kb: [
+        { name: 'architecture-overview.md', match: 88, tokens: 580 },
+        { name: 'combat-system.md', match: 96, tokens: 720 },
+        { name: 'coding-patterns.md', match: 65, tokens: 420 },
+      ],
+      files: [
+        { name: 'DamagePopup.cs', tokens: 340 },
+        { name: 'ZoneBuffManager.cs', tokens: 290 },
+        { name: 'SectorConfig.ts', tokens: 890 },
+      ],
+      history: { turns: 6, summarized: 2, tokens: 1800 },
+      project: { tokens: 180 },
+      persona: { tokens: 350 },
+      skill: null,
+      totalTokens: 6350,
+      outputTokens: 680,
+      latency: 1.4,
+      model: 'claude-sonnet-4',
+    },
+  },
+  {
+    role: 'user',
+    text: '/refactor extract the damage display interface',
+  },
+  {
+    role: 'ai',
+    text: `Using <strong>refactor</strong> skill to extract the damage display interface.
+
+The interface belongs in <strong>CORE</strong> sector (since both ARMORY and BRIDGE-UI need it):
+
+<div class="code-block">// Core/Interfaces/IDamageDisplay.cs
+public interface IDamageDisplay
+{
+    void ShowDamage(Vector3 worldPos, int amount,
+                    DamageType type, bool isCritical);
+    void ShowHeal(Vector3 worldPos, int amount);
+    void ShowStatus(Vector3 worldPos, string text,
+                    Color color, float duration);
+}</div>
+
+Then update <code>DamagePopup.cs</code> to implement it in BRIDGE-UI:
+
+<div class="code-block">// UI/Combat/DamagePopup.cs
+public class DamagePopup : MonoBehaviour, IDamageDisplay
+{
+    // ... existing popup logic, now implements interface
+}</div>
+
+And ARMORY references only the interface:
+
+<div class="code-block">// Combat/DamageCalculator.cs
+[SerializeField] private IDamageDisplay _display;
+// Injected via DI or found via ServiceLocator</div>
+
+This resolves the ARMORY \u2192 BRIDGE-UI violation. The dependency path becomes: ARMORY \u2192 CORE (allowed) and BRIDGE-UI \u2192 CORE (allowed).`,
+    context: {
+      sector: { name: 'ARMORY', color: '#ef4444', tokens: 380 },
+      kb: [
+        { name: 'combat-system.md', match: 96, tokens: 720 },
+        { name: 'coding-patterns.md', match: 90, tokens: 420 },
+      ],
+      files: [
+        { name: 'DamagePopup.cs', tokens: 340 },
+        { name: 'DamageCalculator.cs', tokens: 510 },
+        { name: 'SectorConfig.ts', tokens: 890 },
+      ],
+      history: { turns: 8, summarized: 4, tokens: 2400 },
+      project: { tokens: 180 },
+      persona: { tokens: 350 },
+      skill: { name: 'refactor', tokens: 620 },
+      totalTokens: 7210,
+      outputTokens: 920,
+      latency: 2.1,
+      model: 'claude-sonnet-4',
+    },
+  },
+];
+
+// ══════════════════════════════════════════════════════════════
+// RENDER FUNCTIONS
+// ══════════════════════════════════════════════════════════════
+
+const chatArea = document.getElementById('chatArea');
+const tokenBar = document.getElementById('tokenBar');
+const tokenBarValue = document.getElementById('tokenBarValue');
+const tokenLegend = document.getElementById('tokenLegend');
+const contextRibbon = document.getElementById('contextRibbon');
+const chipOverlay = document.getElementById('chipOverlay');
+
+let openChipId = null;
+let addDropdownOpen = false;
+
+// --- Render a single message ---
+function renderMessage(msg, index) {
+  const div = document.createElement('div');
+  div.className = 'msg msg-' + msg.role;
+
+  if (msg.role === 'user') {
+    div.innerHTML =
+      '<div class="msg-label">You</div>' +
+      '<div class="msg-bubble">' + msg.text + '</div>';
+  } else {
+    // AI message with context injection chips + metadata
+    const ctx = msg.context;
+    const sectorDot = ctx.sector
+      ? '<span class="sector-dot" style="background:' + ctx.sector.color + ';"></span>'
+      : '';
+    const sectorLabel = ctx.sector ? ' &middot; ' + ctx.sector.name : '';
+
+    // Injection chips
+    let injChips = '';
+    if (ctx.sector) injChips += '<span class="ctx-inject-chip sector">' + ctx.sector.name + ' rules</span>';
+    if (ctx.kb && ctx.kb.length) injChips += '<span class="ctx-inject-chip kb">' + ctx.kb.length + ' KB</span>';
+    if (ctx.skill) injChips += '<span class="ctx-inject-chip skill">' + ctx.skill.name + '</span>';
+    if (ctx.files && ctx.files.length) injChips += '<span class="ctx-inject-chip file">' + ctx.files.length + ' files</span>';
+    injChips += '<span class="ctx-inject-chip project">project</span>';
+
+    // Metadata summary
+    const metaId = 'meta-' + index;
+    const summaryParts = [];
+    if (ctx.sector) summaryParts.push(ctx.sector.name + ' rules');
+    if (ctx.kb && ctx.kb.length) summaryParts.push(ctx.kb.map(k => k.name).join(', '));
+    if (ctx.skill) summaryParts.push(ctx.skill.name + ' skill');
+    summaryParts.push(ctx.totalTokens.toLocaleString() + ' tk input');
+    summaryParts.push(ctx.outputTokens.toLocaleString() + ' tk output');
+    summaryParts.push(ctx.latency + 's');
+
+    // Metadata detail table
+    let metaRows = '';
+
+    if (ctx.sector) {
+      metaRows += '<div class="meta-row"><div class="meta-label">Sector</div><div class="meta-value">' +
+        '<span style="color:' + ctx.sector.color + ';">\u25cf</span> ' +
+        ctx.sector.name + ' <span class="tk">' + ctx.sector.tokens + ' tk</span></div></div>';
+    }
+
+    if (ctx.kb && ctx.kb.length) {
+      metaRows += '<div class="meta-row"><div class="meta-label">KB</div><div class="meta-value">' +
+        ctx.kb.map(k =>
+          '<div class="kb-entry"><span>' + k.name + '</span><span class="kb-match">' + k.match + '%</span><span class="tk">' + k.tokens + ' tk</span></div>'
+        ).join('') +
+        '</div></div>';
+    }
+
+    if (ctx.files && ctx.files.length) {
+      metaRows += '<div class="meta-row"><div class="meta-label">Files</div><div class="meta-value">' +
+        ctx.files.map(f => f.name + ' <span class="tk">' + f.tokens + ' tk</span>').join('<br>') +
+        '</div></div>';
+    }
+
+    if (ctx.history) {
+      metaRows += '<div class="meta-row"><div class="meta-label">History</div><div class="meta-value">' +
+        ctx.history.turns + ' turns' +
+        (ctx.history.summarized > 0 ? ' (' + ctx.history.summarized + ' summarized)' : '') +
+        ' <span class="tk">' + ctx.history.tokens + ' tk</span></div></div>';
+    }
+
+    if (ctx.skill) {
+      metaRows += '<div class="meta-row"><div class="meta-label">Skill</div><div class="meta-value">' +
+        '\u26a1 ' + ctx.skill.name + ' <span class="tk">' + ctx.skill.tokens + ' tk</span></div></div>';
+    }
+
+    metaRows += '<div class="meta-row"><div class="meta-label">Project</div><div class="meta-value">Spines RPG <span class="tk">' + ctx.project.tokens + ' tk</span></div></div>';
+    metaRows += '<div class="meta-row"><div class="meta-label">Persona</div><div class="meta-value">SpaceCode Engineer <span class="tk">' + ctx.persona.tokens + ' tk</span></div></div>';
+
+    div.innerHTML =
+      '<div class="msg-label">' + sectorDot + 'SpaceCode' + sectorLabel + '</div>' +
+      '<div class="msg-context-injected">' + injChips + '</div>' +
+      '<div class="msg-bubble">' + msg.text + '</div>' +
+      '<div class="msg-meta">' +
+        '<div class="msg-meta-summary" onclick="toggleMeta(\'' + metaId + '\', this)">' +
+          '<span class="meta-expand">\u25b6</span>' +
+          '<span>' + summaryParts.join(' &middot; ') + '</span>' +
+        '</div>' +
+        '<div class="msg-meta-detail" id="' + metaId + '">' +
+          '<div class="meta-table">' + metaRows +
+            '<div class="meta-footer">' +
+              '<span>Model: ' + ctx.model + '</span>' +
+              '<span>Latency: ' + ctx.latency + 's</span>' +
+              '<span>Input: ' + ctx.totalTokens.toLocaleString() + ' tk</span>' +
+              '<span>Output: ' + ctx.outputTokens.toLocaleString() + ' tk</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  chatArea.appendChild(div);
+}
+
+function toggleMeta(id, el) {
+  const detail = document.getElementById(id);
+  if (!detail) return;
+  detail.classList.toggle('open');
+  el.classList.toggle('open');
+}
+
+// --- Render token budget bar ---
+function renderTokenBar() {
+  const segments = [];
+  if (activeContext.persona.active) segments.push({ cls: 'persona', label: 'Persona', tokens: activeContext.persona.tokens });
+  if (activeContext.sector.active) segments.push({ cls: 'sector', label: 'Sector', tokens: activeContext.sector.tokens });
+  if (activeContext.kb.active) segments.push({ cls: 'kb', label: 'KB', tokens: activeContext.kb.totalTokens });
+  if (activeContext.skill.active) segments.push({ cls: 'skill', label: 'Skill', tokens: activeContext.skill.tokens });
+  if (activeContext.files.active) segments.push({ cls: 'files', label: 'Files', tokens: activeContext.files.totalTokens });
+  if (activeContext.history.active) segments.push({ cls: 'history', label: 'History', tokens: activeContext.history.tokens });
+  if (activeContext.project.active) segments.push({ cls: 'project', label: 'Project', tokens: activeContext.project.tokens });
+
+  const total = getTotalTokens();
+
+  tokenBar.innerHTML = segments.map(s => {
+    const pct = (s.tokens / CONTEXT_MODEL_LIMIT) * 100;
+    return '<div class="token-seg ' + s.cls + '" style="width:' + pct + '%" title="' + s.label + ': ' + s.tokens.toLocaleString() + ' tk"></div>';
+  }).join('');
+
+  tokenBarValue.textContent = total.toLocaleString() + ' / ' + CONTEXT_MODEL_LIMIT.toLocaleString() + ' tokens (' + Math.round((total / CONTEXT_MODEL_LIMIT) * 100) + '%)';
+
+  tokenLegend.innerHTML = segments.map(s =>
+    '<div class="token-legend-item">' +
+      '<span class="token-legend-dot ' + s.cls + '" style="background: var(--c);"></span>' +
+      s.label + ' ' + s.tokens.toLocaleString() +
+    '</div>'
+  ).join('');
+
+  // Set legend dot colors matching the segments
+  const colors = {
+    persona: 'rgba(100, 150, 200, 0.4)',
+    sector: 'rgba(99, 102, 241, 0.7)',
+    kb: 'rgba(34, 197, 94, 0.7)',
+    skill: 'rgba(245, 158, 11, 0.7)',
+    files: 'rgba(59, 130, 246, 0.7)',
+    history: 'rgba(168, 85, 247, 0.6)',
+    project: 'rgba(236, 72, 153, 0.6)',
+  };
+  tokenLegend.querySelectorAll('.token-legend-dot').forEach(dot => {
+    const cls = dot.className.split(' ').find(c => colors[c]);
+    if (cls) dot.style.background = colors[cls];
+  });
+}
+
+// --- Render context ribbon ---
+function renderRibbon() {
+  const chips = [];
+
+  // Sector chip
+  if (activeContext.sector.active) {
+    chips.push({
+      id: 'chip-sector',
+      cls: 'sector',
+      icon: '\u{1f3db}',
+      label: activeContext.sector.name,
+      count: null,
+      detailHtml: buildSectorDetail(),
+    });
+  }
+
+  // KB chip
+  if (activeContext.kb.active && activeContext.kb.entries.length > 0) {
+    chips.push({
+      id: 'chip-kb',
+      cls: 'kb',
+      icon: '\ud83d\udcda',
+      label: 'KB',
+      count: activeContext.kb.entries.length,
+      detailHtml: buildKbDetail(),
+    });
+  }
+
+  // Skill chip
+  if (activeContext.skill.active && activeContext.skill.name) {
+    chips.push({
+      id: 'chip-skill',
+      cls: 'skill',
+      icon: '\u26a1',
+      label: activeContext.skill.name,
+      count: null,
+      detailHtml: buildSkillDetail(),
+    });
+  }
+
+  // Files chip
+  if (activeContext.files.active && activeContext.files.list.length > 0) {
+    const primary = activeContext.files.list[0].name;
+    const extra = activeContext.files.list.length - 1;
+    chips.push({
+      id: 'chip-files',
+      cls: 'files',
+      icon: '\ud83d\udcc4',
+      label: primary + (extra > 0 ? '' : ''),
+      count: extra > 0 ? '+' + extra : null,
+      detailHtml: buildFilesDetail(),
+    });
+  }
+
+  // History chip
+  if (activeContext.history.active) {
+    chips.push({
+      id: 'chip-history',
+      cls: 'history',
+      icon: '\ud83d\udcac',
+      label: activeContext.history.turns + ' turns',
+      count: activeContext.history.summarized > 0 ? activeContext.history.summarized + ' summarized' : null,
+      detailHtml: buildHistoryDetail(),
+    });
+  }
+
+  // Project chip
+  if (activeContext.project.active) {
+    chips.push({
+      id: 'chip-project',
+      cls: 'project',
+      icon: '\ud83c\udfae',
+      label: 'Spines',
+      count: null,
+      detailHtml: buildProjectDetail(),
+    });
+  }
+
+  // Build list of inactive sources for the + dropdown
+  const inactive = [];
+  if (!activeContext.sector.active) inactive.push({ key: 'sector', icon: '\u{1f3db}', label: activeContext.sector.name + ' sector', tokens: activeContext.sector.tokens });
+  if (!activeContext.kb.active) inactive.push({ key: 'kb', icon: '\ud83d\udcda', label: 'Knowledge Base (' + activeContext.kb.entries.length + ' entries)', tokens: activeContext.kb.totalTokens });
+  if (!activeContext.skill.active && activeContext.skill.name) inactive.push({ key: 'skill', icon: '\u26a1', label: activeContext.skill.name + ' skill', tokens: activeContext.skill.tokens });
+  if (!activeContext.files.active) inactive.push({ key: 'files', icon: '\ud83d\udcc4', label: 'File context (' + activeContext.files.list.length + ' files)', tokens: activeContext.files.totalTokens });
+  if (!activeContext.history.active) inactive.push({ key: 'history', icon: '\ud83d\udcac', label: 'Conversation history', tokens: activeContext.history.tokens });
+  if (!activeContext.project.active) inactive.push({ key: 'project', icon: '\ud83c\udfae', label: 'Project info', tokens: activeContext.project.tokens });
+
+  const addBtnHtml = '<div class="ctx-add-btn' + (inactive.length === 0 ? ' hidden' : '') + '" onclick="toggleAddDropdown()">' +
+    '+' +
+    '<div class="add-ctx-dropdown' + (addDropdownOpen ? ' visible' : '') + '">' +
+      '<div class="add-ctx-dropdown-title">Add context source</div>' +
+      (inactive.length > 0
+        ? inactive.map(item =>
+            '<div class="add-ctx-item" onclick="event.stopPropagation(); restoreChip(\'' + item.key + '\')">' +
+              '<span class="add-icon">' + item.icon + '</span>' +
+              '<span class="add-label">' + item.label + '</span>' +
+              '<span class="add-tk">+' + item.tokens + ' tk</span>' +
+            '</div>'
+          ).join('')
+        : '<div class="add-ctx-empty">All context sources active</div>') +
+    '</div>' +
+  '</div>';
+
+  const ribbonContent = '<span class="ribbon-label">Context</span>' +
+    chips.map(c => {
+      const countHtml = c.count ? '<span class="chip-count">' + c.count + '</span>' : '';
+      return '<div class="ctx-chip ' + c.cls + (openChipId === c.id ? ' active' : '') + '" id="' + c.id + '" onclick="toggleChipDetail(\'' + c.id + '\')">' +
+        '<span class="chip-icon">' + c.icon + '</span>' +
+        '<span class="chip-label">' + c.label + '</span>' +
+        countHtml +
+        '<span class="chip-x" onclick="event.stopPropagation(); removeChip(\'' + c.id + '\')">\u2715</span>' +
+        '<div class="chip-detail' + (openChipId === c.id ? ' visible' : '') + '">' + c.detailHtml + '</div>' +
+      '</div>';
+    }).join('') + addBtnHtml +
+    '<div class="blocks-btn" onclick="openBlockPanel()">\u2630 Blocks</div>';
+
+  contextRibbon.innerHTML = ribbonContent;
+}
+
+// --- Chip detail builders ---
+
+function buildSectorDetail() {
+  const s = activeContext.sector;
+  const rulesHtml = s.rules.split('\n').map(line => {
+    return line.replace(/\b(NEVER|NOT|NO)\b/g, '<span class="kw">$1</span>');
+  }).join('\n');
+
+  return '<div class="chip-detail-title">Sector: ' + s.name + ' <span class="detail-tk">' + s.tokens + ' tk</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon" style="color:' + s.color + ';">\u25cf</span><span class="row-name">' + s.name + ' sector active</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83d\udee1</span><span class="row-name">Approval required</span><span class="row-meta">changes need review</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83d\udd17</span><span class="row-name">Dependencies: ' + (s.allowedDeps.length === 0 ? 'none (root)' : s.allowedDeps.join(', ')) + '</span></div>' +
+    '<div class="rules-preview">' + rulesHtml + '</div>' +
+    '<div class="chip-detail-toggle" onclick="event.stopPropagation();"><span class="toggle-switch on"></span> Inject sector rules</div>';
+}
+
+function buildKbDetail() {
+  const entries = activeContext.kb.entries;
+  return '<div class="chip-detail-title">Knowledge Base <span class="detail-tk">' + activeContext.kb.totalTokens + ' tk</span></div>' +
+    entries.map(e =>
+      '<div class="chip-detail-row">' +
+        '<span class="row-icon">\ud83d\udcc4</span>' +
+        '<span class="row-name">' + e.name + '</span>' +
+        '<span class="kb-match" style="font-size:9px;padding:1px 5px;border-radius:6px;background:rgba(34,197,94,0.08);color:rgba(34,197,94,0.6);border:1px solid rgba(34,197,94,0.15);">' + e.match + '%</span>' +
+        '<span class="row-meta">' + e.tokens + ' tk</span>' +
+      '</div>'
+    ).join('') +
+    '<div class="chip-detail-toggle" onclick="event.stopPropagation();"><span class="toggle-switch on"></span> Include KB entries</div>';
+}
+
+function buildSkillDetail() {
+  const s = activeContext.skill;
+  return '<div class="chip-detail-title">Skill: ' + s.name + ' <span class="detail-tk">' + s.tokens + ' tk</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\u26a1</span><span class="row-name">' + s.name + ' prompt injected</span></div>' +
+    '<div class="chip-detail-toggle" onclick="event.stopPropagation();"><span class="toggle-switch on"></span> Use skill</div>';
+}
+
+function buildFilesDetail() {
+  const files = activeContext.files.list;
+  return '<div class="chip-detail-title">File Context <span class="detail-tk">' + activeContext.files.totalTokens + ' tk</span></div>' +
+    files.map(f =>
+      '<div class="chip-detail-row">' +
+        '<span class="row-icon">' + (f.type === 'open' ? '\ud83d\udcdd' : '\ud83d\udd52') + '</span>' +
+        '<span class="row-name">' + f.name + '</span>' +
+        '<span class="row-meta">' + f.type + ' \u00b7 ' + f.tokens + ' tk</span>' +
+      '</div>'
+    ).join('') +
+    '<div class="chip-detail-toggle" onclick="event.stopPropagation();"><span class="toggle-switch on"></span> Include file context</div>';
+}
+
+function buildHistoryDetail() {
+  const h = activeContext.history;
+  return '<div class="chip-detail-title">Conversation History <span class="detail-tk">' + h.tokens + ' tk</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83d\udcac</span><span class="row-name">' + h.turns + ' total turns</span></div>' +
+    (h.summarized > 0
+      ? '<div class="chip-detail-row"><span class="row-icon">\ud83d\udce6</span><span class="row-name">' + h.summarized + ' turns summarized</span><span class="row-meta">compressed</span></div>'
+      : '') +
+    '<div class="chip-detail-row"><span class="row-icon">\u2139\ufe0f</span><span class="row-name">' + (h.turns - h.summarized) + ' turns in full</span><span class="row-meta">verbatim</span></div>';
+}
+
+function buildProjectDetail() {
+  const p = activeContext.project.info;
+  return '<div class="chip-detail-title">Project Info <span class="detail-tk">' + activeContext.project.tokens + ' tk</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83c\udfae</span><span class="row-name">' + p.projectName + '</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\u2699\ufe0f</span><span class="row-name">' + p.engine + '</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83d\udcf1</span><span class="row-name">' + p.platform + '</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83d\udcbb</span><span class="row-name">' + p.lang + '</span></div>' +
+    '<div class="chip-detail-row"><span class="row-icon">\ud83c\udfaf</span><span class="row-name">Build: ' + p.buildTarget + '</span></div>' +
+    '<div class="chip-detail-toggle" onclick="event.stopPropagation();"><span class="toggle-switch on"></span> Include project info</div>';
+}
+
+// --- Chip interactions ---
+function toggleChipDetail(chipId) {
+  if (openChipId === chipId) {
+    openChipId = null;
+  } else {
+    openChipId = chipId;
+  }
+  renderRibbon();
+  chipOverlay.classList.toggle('visible', openChipId !== null);
+}
+
+chipOverlay.addEventListener('click', () => {
+  openChipId = null;
+  addDropdownOpen = false;
+  renderRibbon();
+  chipOverlay.classList.remove('visible');
+});
+
+function removeChip(chipId) {
+  // Animate out, then remove
+  const el = document.getElementById(chipId);
+  if (el) el.classList.add('removing');
+  setTimeout(() => {
+    if (chipId === 'chip-sector') activeContext.sector.active = false;
+    if (chipId === 'chip-kb') activeContext.kb.active = false;
+    if (chipId === 'chip-skill') activeContext.skill.active = false;
+    if (chipId === 'chip-files') activeContext.files.active = false;
+    if (chipId === 'chip-history') activeContext.history.active = false;
+    if (chipId === 'chip-project') activeContext.project.active = false;
+    openChipId = null;
+    addDropdownOpen = false;
+    chipOverlay.classList.remove('visible');
+    renderRibbon();
+    renderTokenBar();
+  }, 200);
+}
+
+function restoreChip(key) {
+  if (key === 'sector') activeContext.sector.active = true;
+  if (key === 'kb') activeContext.kb.active = true;
+  if (key === 'skill') activeContext.skill.active = true;
+  if (key === 'files') activeContext.files.active = true;
+  if (key === 'history') activeContext.history.active = true;
+  if (key === 'project') activeContext.project.active = true;
+  addDropdownOpen = false;
+  openChipId = null;
+  chipOverlay.classList.remove('visible');
+  renderRibbon();
+  renderTokenBar();
+
+  // Flash the restored chip
+  setTimeout(() => {
+    const chipEl = document.getElementById('chip-' + key);
+    if (chipEl) {
+      chipEl.classList.add('restoring');
+      setTimeout(() => chipEl.classList.remove('restoring'), 300);
+    }
+  }, 50);
+}
+
+function toggleAddDropdown() {
+  addDropdownOpen = !addDropdownOpen;
+  openChipId = null;
+  chipOverlay.classList.toggle('visible', addDropdownOpen);
+  renderRibbon();
+}
+
+// ══════════════════════════════════════════════════════════════
+// BLOCK PANEL
+// ══════════════════════════════════════════════════════════════
+
+const blockScrim = document.getElementById('blockScrim');
+const blockPanel = document.getElementById('blockPanel');
+const blockPanelBody = document.getElementById('blockPanelBody');
+const blockBudget = document.getElementById('blockBudget');
+const blockPanelClose = document.getElementById('blockPanelClose');
+
+// All blocks — the single source of truth for context assembly
+const allBlocks = [
+  // Persona blocks
+  { id: 'persona-engineer', type: 'persona', name: 'SpaceCode Engineer', icon: '\ud83d\ude80', tokens: 350, trigger: 'always', active: true, pinned: true, priority: 1,
+    desc: 'Core AI personality. Understands Unity, C#, project architecture.' },
+  { id: 'persona-reviewer', type: 'persona', name: 'Code Reviewer', icon: '\ud83d\udd0d', tokens: 280, trigger: 'manual', active: false, pinned: false, priority: 1,
+    desc: 'Strict review mode. Checks for patterns, anti-patterns, SOLID.' },
+
+  // Sector blocks
+  { id: 'sector-core', type: 'sector', name: 'CORE sector rules', icon: '\u{1f3db}', tokens: 340, trigger: 'auto', active: true, pinned: false, priority: 2, color: '#6366f1',
+    desc: 'Pure C#, no MonoBehaviour, serializable types only.' },
+  { id: 'sector-armory', type: 'sector', name: 'ARMORY sector rules', icon: '\ud83d\udd25', tokens: 380, trigger: 'auto', active: false, pinned: false, priority: 2, color: '#ef4444',
+    desc: 'Combat stats, damage types, ability cooldowns, object pooling.' },
+  { id: 'sector-hangar', type: 'sector', name: 'HANGAR sector rules', icon: '\ud83d\udc64', tokens: 320, trigger: 'auto', active: false, pinned: false, priority: 2, color: '#22c55e',
+    desc: 'Character customization, equipment slots, appearance serialization.' },
+
+  // KB blocks
+  { id: 'kb-arch', type: 'kb', name: 'architecture-overview.md', icon: '\ud83d\udcda', tokens: 580, trigger: 'auto', active: true, pinned: false, priority: 3, match: 94,
+    desc: 'High-level architecture doc. Matched by relevance.' },
+  { id: 'kb-patterns', type: 'kb', name: 'coding-patterns.md', icon: '\ud83d\udcda', tokens: 420, trigger: 'auto', active: true, pinned: false, priority: 3, match: 82,
+    desc: 'MVP pattern, event bus, service locator.' },
+  { id: 'kb-unity', type: 'kb', name: 'unity-conventions.md', icon: '\ud83d\udcda', tokens: 310, trigger: 'auto', active: true, pinned: false, priority: 3, match: 71,
+    desc: 'Unity-specific coding standards and best practices.' },
+  { id: 'kb-combat', type: 'kb', name: 'combat-system.md', icon: '\ud83d\udcda', tokens: 720, trigger: 'auto', active: false, pinned: false, priority: 3, match: 96,
+    desc: 'Damage formulas, stat scaling, ability pipeline.' },
+
+  // Skill blocks
+  { id: 'skill-refactor', type: 'skill', name: 'refactor', icon: '\u26a1', tokens: 620, trigger: 'manual', active: false, pinned: false, priority: 4,
+    desc: 'Extract interfaces, move code between sectors, fix violations.' },
+  { id: 'skill-test', type: 'skill', name: 'write-tests', icon: '\u26a1', tokens: 480, trigger: 'manual', active: false, pinned: false, priority: 4,
+    desc: 'Generate EditMode/PlayMode tests for Unity code.' },
+
+  // File blocks
+  { id: 'file-sectorconfig', type: 'file', name: 'SectorConfig.ts', icon: '\ud83d\udcdd', tokens: 890, trigger: 'auto', active: true, pinned: false, priority: 5,
+    desc: 'Currently open in editor.' },
+  { id: 'file-sectormanager', type: 'file', name: 'SectorManager.ts', icon: '\ud83d\udcdd', tokens: 640, trigger: 'auto', active: true, pinned: false, priority: 5,
+    desc: 'Currently open in editor.' },
+  { id: 'file-ctxbuilder', type: 'file', name: 'chatContextBuilder.ts', icon: '\ud83d\udd52', tokens: 420, trigger: 'auto', active: true, pinned: false, priority: 5,
+    desc: 'Recently edited.' },
+
+  // History block
+  { id: 'history', type: 'history', name: 'Conversation history', icon: '\ud83d\udcac', tokens: 2400, trigger: 'always', active: true, pinned: true, priority: 6,
+    desc: '8 turns (4 summarized). Auto-managed by system.' },
+
+  // Project block
+  { id: 'project', type: 'project', name: 'Project: Spines RPG', icon: '\ud83c\udfae', tokens: 180, trigger: 'always', active: true, pinned: true, priority: 7,
+    desc: 'Unity 6000.1.2f1 \u00b7 C# .NET Standard 2.1 \u00b7 iOS/Android' },
+
+  // Custom blocks
+  { id: 'custom-naming', type: 'custom', name: 'Naming conventions', icon: '\u270d\ufe0f', tokens: 120, trigger: 'custom', active: true, pinned: true, priority: 3,
+    desc: 'PascalCase for public, _camelCase for private, I prefix for interfaces.',
+    content: 'Follow these naming rules:\n- Public: PascalCase\n- Private: _camelCase prefix\n- Interfaces: IMyInterface\n- ScriptableObjects: SO suffix (DamageSO)\n- Events: On prefix (OnHealthChanged)' },
+  { id: 'custom-nosingletons', type: 'custom', name: 'No singletons rule', icon: '\u270d\ufe0f', tokens: 45, trigger: 'custom', active: false, pinned: false, priority: 3,
+    desc: 'Use ServiceLocator pattern instead of MonoBehaviour singletons.',
+    content: 'NEVER use singleton pattern with MonoBehaviour. Use ServiceLocator or dependency injection instead.' },
+];
+
+function getBlockBudget() {
+  const active = allBlocks.filter(b => b.active).reduce((sum, b) => sum + b.tokens, 0);
+  return active;
+}
+
+function openBlockPanel() {
+  renderBlockPanel();
+  blockPanel.classList.add('open');
+  blockScrim.classList.add('open');
+}
+
+function closeBlockPanel() {
+  blockPanel.classList.remove('open');
+  blockScrim.classList.remove('open');
+}
+
+blockScrim.addEventListener('click', closeBlockPanel);
+blockPanelClose.addEventListener('click', closeBlockPanel);
+
+function toggleBlock(id) {
+  const block = allBlocks.find(b => b.id === id);
+  if (!block) return;
+  block.active = !block.active;
+
+  // Sync with activeContext for ribbon/token bar
+  syncBlocksToContext();
+  renderBlockPanel();
+  renderRibbon();
+  renderTokenBar();
+}
+
+function toggleBlockPin(id) {
+  const block = allBlocks.find(b => b.id === id);
+  if (!block) return;
+  block.pinned = !block.pinned;
+  renderBlockPanel();
+}
+
+function syncBlocksToContext() {
+  // Sync block state back to activeContext (which drives ribbon + token bar)
+  const hasSector = allBlocks.some(b => b.type === 'sector' && b.active);
+  activeContext.sector.active = hasSector;
+  if (hasSector) {
+    const activeSector = allBlocks.find(b => b.type === 'sector' && b.active);
+    if (activeSector) {
+      activeContext.sector.name = activeSector.name.replace(' sector rules', '');
+      activeContext.sector.tokens = activeSector.tokens;
+      activeContext.sector.color = activeSector.color || '#6366f1';
+    }
+  }
+
+  const activeKb = allBlocks.filter(b => b.type === 'kb' && b.active);
+  activeContext.kb.active = activeKb.length > 0;
+  activeContext.kb.totalTokens = activeKb.reduce((s, b) => s + b.tokens, 0);
+  activeContext.kb.entries = activeKb.map(b => ({ name: b.name, match: b.match || 0, tokens: b.tokens }));
+
+  const activeSkill = allBlocks.find(b => b.type === 'skill' && b.active);
+  activeContext.skill.active = !!activeSkill;
+  activeContext.skill.name = activeSkill ? activeSkill.name : null;
+  activeContext.skill.tokens = activeSkill ? activeSkill.tokens : 0;
+
+  const activeFiles = allBlocks.filter(b => b.type === 'file' && b.active);
+  activeContext.files.active = activeFiles.length > 0;
+  activeContext.files.totalTokens = activeFiles.reduce((s, b) => s + b.tokens, 0);
+  activeContext.files.list = activeFiles.map(b => ({ name: b.name, type: b.icon === '\ud83d\udd52' ? 'recent' : 'open', tokens: b.tokens }));
+
+  const historyBlock = allBlocks.find(b => b.id === 'history');
+  activeContext.history.active = historyBlock ? historyBlock.active : true;
+  activeContext.history.tokens = historyBlock ? historyBlock.tokens : 2400;
+
+  const projectBlock = allBlocks.find(b => b.id === 'project');
+  activeContext.project.active = projectBlock ? projectBlock.active : true;
+  activeContext.project.tokens = projectBlock ? projectBlock.tokens : 180;
+
+  // Custom blocks add to persona tokens for simplicity
+  const customActive = allBlocks.filter(b => b.type === 'custom' && b.active);
+  const personaBlock = allBlocks.find(b => b.id === 'persona-engineer' && b.active) || allBlocks.find(b => b.type === 'persona' && b.active);
+  activeContext.persona.active = !!personaBlock;
+  activeContext.persona.tokens = (personaBlock ? personaBlock.tokens : 0) + customActive.reduce((s, b) => s + b.tokens, 0);
+}
+
+function renderBlockPanel() {
+  const budget = getBlockBudget();
+  blockBudget.textContent = budget.toLocaleString() + ' / ' + CONTEXT_MODEL_LIMIT.toLocaleString() + ' tokens';
+
+  const activeBlocks = allBlocks.filter(b => b.active);
+  const inactiveBlocks = allBlocks.filter(b => !b.active);
+  const customBlocks = allBlocks.filter(b => b.type === 'custom');
+
+  // Group active by type
+  const typeOrder = ['persona', 'sector', 'kb', 'skill', 'file', 'history', 'project', 'custom'];
+  const typeLabels = {
+    persona: 'Persona', sector: 'Sector Rules', kb: 'Knowledge Base',
+    skill: 'Skills', file: 'File Context', history: 'History',
+    project: 'Project Info', custom: 'Custom Rules'
+  };
+
+  let html = '';
+
+  // Active blocks
+  const activeTk = activeBlocks.reduce((s, b) => s + b.tokens, 0);
+  html += '<div class="block-section-title">Active Blocks <span class="section-tk">' + activeTk.toLocaleString() + ' tk</span></div>';
+
+  for (const type of typeOrder) {
+    const blocks = activeBlocks.filter(b => b.type === type);
+    if (blocks.length === 0) continue;
+
+    blocks.forEach(b => {
+      html += renderBlockRow(b);
+    });
+  }
+
+  // Inactive blocks
+  if (inactiveBlocks.length > 0) {
+    html += '<div class="block-section-title">Available <span class="section-tk">' + inactiveBlocks.length + ' blocks</span></div>';
+    inactiveBlocks.forEach(b => {
+      html += renderBlockRow(b);
+    });
+  }
+
+  // Create custom block button
+  html += '<div class="block-section-title">Custom Blocks <span class="section-tk">' + customBlocks.length + ' defined</span></div>';
+  html += '<div class="custom-block-add" onclick="createCustomBlock()">+ Create custom block</div>';
+
+  // Priority order
+  html += '<div class="block-section-title">Drop Priority <span class="section-tk">when context is full</span></div>';
+  html += '<div class="priority-list">';
+  const priorities = [
+    { icon: '\ud83d\ude80', label: 'Persona', note: 'never drop' },
+    { icon: '\u{1f3db}', label: 'Sector rules', note: 'drop if switching sectors' },
+    { icon: '\ud83d\udccc', label: 'Pinned blocks', note: 'user-locked' },
+    { icon: '\ud83d\udcda', label: 'KB entries (high match)', note: 'drop lowest match first' },
+    { icon: '\u270d\ufe0f', label: 'Custom rules', note: '' },
+    { icon: '\ud83d\udcdd', label: 'File context', note: 'drop oldest first' },
+    { icon: '\u26a1', label: 'Skills', note: 'drop when skill not needed' },
+    { icon: '\ud83d\udcac', label: 'History', note: 'summarize older turns' },
+    { icon: '\ud83c\udfae', label: 'Project info', note: 'compact if needed' },
+  ];
+  priorities.forEach(p => {
+    html += '<div class="priority-item"><span class="pri-icon">' + p.icon + '</span><span class="pri-label">' + p.label + '</span>' +
+      (p.note ? '<span class="pri-note">' + p.note + '</span>' : '') + '</div>';
+  });
+  html += '</div>';
+
+  blockPanelBody.innerHTML = html;
+}
+
+function renderBlockRow(b) {
+  const isActive = b.active;
+  const triggerCls = b.trigger;
+  const triggerLabel = b.trigger === 'auto' ? 'auto' : b.trigger === 'always' ? 'always' : b.trigger === 'manual' ? 'manual' : b.trigger === 'custom' ? 'custom' : 'configured';
+
+  return '<div class="block-row' + (isActive ? '' : ' inactive') + '">' +
+    '<span class="blk-icon">' + b.icon + '</span>' +
+    '<div class="blk-info">' +
+      '<div class="blk-name">' + b.name + '</div>' +
+      '<div class="blk-meta">' +
+        '<span class="blk-trigger ' + triggerCls + '">' + triggerLabel + '</span>' +
+        '<span>' + b.desc + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<span class="blk-tokens">' + b.tokens + ' tk</span>' +
+    '<span class="blk-pin ' + (b.pinned ? 'pinned' : '') + '" onclick="toggleBlockPin(\'' + b.id + '\')" title="' + (b.pinned ? 'Unpin' : 'Pin — never auto-drop') + '">\ud83d\udccc</span>' +
+    '<div class="blk-toggle ' + (isActive ? 'on' : '') + '" onclick="toggleBlock(\'' + b.id + '\')"></div>' +
+  '</div>';
+}
+
+function createCustomBlock() {
+  const name = prompt('Block name:');
+  if (!name) return;
+  const content = prompt('Block content (text injected into AI prompt):');
+  if (!content) return;
+
+  const tokens = Math.round(content.length / 4); // rough estimate
+  allBlocks.push({
+    id: 'custom-' + Date.now(),
+    type: 'custom',
+    name: name,
+    icon: '\u270d\ufe0f',
+    tokens: tokens,
+    trigger: 'custom',
+    active: true,
+    pinned: false,
+    priority: 3,
+    desc: content.slice(0, 60) + (content.length > 60 ? '...' : ''),
+    content: content,
+  });
+  syncBlocksToContext();
+  renderBlockPanel();
+  renderRibbon();
+  renderTokenBar();
+}
+
+// --- Simulate context changes (sector switch mid-conversation) ---
+function switchSector(id, name, color, tokens, rules, deps, approval) {
+  activeContext.sector.active = true;
+  activeContext.sector.id = id;
+  activeContext.sector.name = name;
+  activeContext.sector.color = color;
+  activeContext.sector.tokens = tokens;
+  activeContext.sector.rules = rules;
+  activeContext.sector.allowedDeps = deps;
+  activeContext.sector.approvalRequired = approval;
+  renderRibbon();
+  renderTokenBar();
+}
+
+function activateSkill(name, tokens) {
+  activeContext.skill.active = true;
+  activeContext.skill.name = name;
+  activeContext.skill.tokens = tokens;
+  renderRibbon();
+  renderTokenBar();
+}
+
+// --- Simulate send ---
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+
+sendBtn.addEventListener('click', simulateSend);
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    simulateSend();
+  }
+});
+
+function simulateSend() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  // Check for skill trigger
+  if (text.startsWith('/')) {
+    const skillName = text.slice(1).split(' ')[0];
+    activateSkill(skillName, 620);
+  }
+
+  // Add user message
+  const userDiv = document.createElement('div');
+  userDiv.className = 'msg msg-user';
+  userDiv.innerHTML = '<div class="msg-label">You</div><div class="msg-bubble">' + escapeHtml(text) + '</div>';
+  chatArea.appendChild(userDiv);
+
+  chatInput.value = '';
+
+  // Update history
+  activeContext.history.turns += 1;
+  activeContext.history.tokens += 200;
+  renderRibbon();
+  renderTokenBar();
+
+  // Show typing
+  const typing = document.getElementById('typingIndicator');
+  typing.classList.add('active');
+
+  // Scroll
+  chatArea.scrollTop = chatArea.scrollHeight;
+
+  // Simulate response
+  setTimeout(() => {
+    typing.classList.remove('active');
+
+    const total = getTotalTokens();
+    const aiDiv = document.createElement('div');
+    aiDiv.className = 'msg msg-ai';
+    const metaId = 'meta-live-' + Date.now();
+
+    const sectorDot = activeContext.sector.active
+      ? '<span class="sector-dot" style="background:' + activeContext.sector.color + ';"></span>'
+      : '';
+    const sectorLabel = activeContext.sector.active ? ' &middot; ' + activeContext.sector.name : '';
+
+    let injChips = '';
+    if (activeContext.sector.active) injChips += '<span class="ctx-inject-chip sector">' + activeContext.sector.name + ' rules</span>';
+    if (activeContext.kb.active) injChips += '<span class="ctx-inject-chip kb">' + activeContext.kb.entries.length + ' KB</span>';
+    if (activeContext.skill.active) injChips += '<span class="ctx-inject-chip skill">' + activeContext.skill.name + '</span>';
+    if (activeContext.files.active) injChips += '<span class="ctx-inject-chip file">' + activeContext.files.list.length + ' files</span>';
+    if (activeContext.project.active) injChips += '<span class="ctx-inject-chip project">project</span>';
+
+    aiDiv.innerHTML =
+      '<div class="msg-label">' + sectorDot + 'SpaceCode' + sectorLabel + '</div>' +
+      '<div class="msg-context-injected">' + injChips + '</div>' +
+      '<div class="msg-bubble">I understand your request. Based on the current ' +
+        (activeContext.sector.active ? '<code>' + activeContext.sector.name + '</code> sector context' : 'context') +
+        ', I can help with that. The relevant rules and knowledge base entries have been applied to this response.</div>' +
+      '<div class="msg-meta">' +
+        '<div class="msg-meta-summary" onclick="toggleMeta(\'' + metaId + '\', this)">' +
+          '<span class="meta-expand">\u25b6</span>' +
+          '<span>' + total.toLocaleString() + ' tk input &middot; 120 tk output &middot; 0.8s</span>' +
+        '</div>' +
+        '<div class="msg-meta-detail" id="' + metaId + '"><div class="meta-table">' +
+          '<div class="meta-row"><div class="meta-label">Total</div><div class="meta-value">' + total.toLocaleString() + ' input + 120 output</div></div>' +
+          '<div class="meta-footer"><span>Model: claude-sonnet-4</span><span>Latency: 0.8s</span></div>' +
+        '</div></div>' +
+      '</div>';
+
+    chatArea.appendChild(aiDiv);
+    activeContext.history.turns += 1;
+    activeContext.history.tokens += 120;
+    renderRibbon();
+    renderTokenBar();
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }, 1500);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ══════════════════════════════════════════════════════════════
+// INIT — render messages + UI
+// ══════════════════════════════════════════════════════════════
+
+// Render all preset messages
+messages.forEach((msg, i) => {
+  // Simulate context changes based on message content
+  if (msg.role === 'user' && msg.text.includes('switch to ARMORY')) {
+    switchSector('combat', 'ARMORY', '#ef4444', 380,
+      `You are in ARMORY sector \u2014 combat systems.
+- Stats: Health, Mana, Stamina, Attack, Defense, Speed
+- Damage types: Physical, Fire, Ice, Lightning, Poison, Holy, Dark
+- Never hardcode damage formulas \u2014 use DamageCalculator
+- All abilities must have cooldown and resource cost
+- Status effects as ScriptableObjects with duration + tick
+- Use object pooling for damage numbers and particles`,
+      ['core', 'character', 'inventory'], false);
+  }
+  if (msg.role === 'user' && msg.text.startsWith('/refactor')) {
+    activateSkill('refactor', 620);
+  }
+  renderMessage(msg, i);
+});
+
+renderTokenBar();
+renderRibbon();
+
+// Scroll to bottom
+setTimeout(() => { chatArea.scrollTop = chatArea.scrollHeight; }, 100);
+
+</script>
+</body>
+</html>

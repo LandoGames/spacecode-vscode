@@ -16,28 +16,58 @@ export class AuthService {
 
   async initialize(context: vscode.ExtensionContext): Promise<void> {
     this.context = context;
+    // One-time migration: Move any keys from VS Code config to SecretStorage
+    await this.migrateKeysFromConfig();
+  }
+
+  /**
+   * One-time migration: If keys exist in VS Code config but not in SecretStorage,
+   * move them to SecretStorage and clear from config.
+   */
+  private async migrateKeysFromConfig(): Promise<void> {
+    if (!this.context) return;
+
+    const config = vscode.workspace.getConfiguration('spacecode');
+
+    // Check and migrate Claude key
+    const configClaudeKey = config.get<string>('claudeApiKey');
+    if (configClaudeKey && configClaudeKey.trim()) {
+      const existingSecret = await this.context.secrets.get(this.CLAUDE_KEY_ID);
+      if (!existingSecret) {
+        // Migrate to SecretStorage
+        await this.context.secrets.store(this.CLAUDE_KEY_ID, configClaudeKey.trim());
+        console.log('[AuthService] Migrated Claude API key from config to SecretStorage');
+      }
+      // Clear from config (it's now in SecretStorage)
+      await config.update('claudeApiKey', undefined, vscode.ConfigurationTarget.Global);
+    }
+
+    // Check and migrate OpenAI key
+    const configOpenaiKey = config.get<string>('openaiApiKey');
+    if (configOpenaiKey && configOpenaiKey.trim()) {
+      const existingSecret = await this.context.secrets.get(this.OPENAI_KEY_ID);
+      if (!existingSecret) {
+        // Migrate to SecretStorage
+        await this.context.secrets.store(this.OPENAI_KEY_ID, configOpenaiKey.trim());
+        console.log('[AuthService] Migrated OpenAI API key from config to SecretStorage');
+      }
+      // Clear from config (it's now in SecretStorage)
+      await config.update('openaiApiKey', undefined, vscode.ConfigurationTarget.Global);
+    }
   }
 
   /**
    * Get stored API keys (from VS Code's secure secret storage)
+   * Single source of truth: SecretStorage ONLY
    */
   async getApiKeys(): Promise<ApiKeys> {
     if (!this.context) {
       return {};
     }
 
-    // First check settings (for users who prefer config file)
-    const config = vscode.workspace.getConfiguration('spacecode');
-    let claudeKey = config.get<string>('claudeApiKey');
-    let openaiKey = config.get<string>('openaiApiKey');
-
-    // If not in settings, check secure storage
-    if (!claudeKey) {
-      claudeKey = await this.context.secrets.get(this.CLAUDE_KEY_ID);
-    }
-    if (!openaiKey) {
-      openaiKey = await this.context.secrets.get(this.OPENAI_KEY_ID);
-    }
+    // Single source of truth: SecretStorage only
+    const claudeKey = await this.context.secrets.get(this.CLAUDE_KEY_ID);
+    const openaiKey = await this.context.secrets.get(this.OPENAI_KEY_ID);
 
     return {
       claude: claudeKey || undefined,

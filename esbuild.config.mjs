@@ -30,12 +30,26 @@ const webviewConfig = {
   logLevel: 'info'
 };
 
+/** @type {esbuild.BuildOptions} */
+const panelConfig = {
+  entryPoints: ['src/webview/panel/index.ts'],
+  bundle: true,
+  platform: 'browser',
+  target: 'es2020',
+  format: 'iife',
+  outfile: 'media/panel.js',
+  sourcemap: true,
+  logLevel: 'info'
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
-  await Promise.all([ctx1.watch(), ctx2.watch()]);
+  const ctx3 = await esbuild.context(panelConfig);
+  await Promise.all([ctx1.watch(), ctx2.watch(), ctx3.watch()]);
   console.log('[SpaceCode] esbuild watching...');
 } else {
   await esbuild.build(extensionConfig);
   await esbuild.build(webviewConfig);
+  await esbuild.build(panelConfig);
 }

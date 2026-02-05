@@ -20,10 +20,14 @@ import { TemplateService } from './mastercode_port/services/templates';
 import { KnowledgeBaseService } from './mastercode_port/services/knowledgeBase';
 import { MCPManager } from './mastercode_port/services/mcpManager';
 import { VoiceService } from './mastercode_port/services/voiceService';
+import { SoundService } from './mastercode_port/services/soundService';
 import { PricingService } from './mastercode_port/services/pricingService';
 import { MainPanel } from './mastercode_port/ui/mainPanel';
 import { SidebarProvider } from './mastercode_port/ui/sidebarProvider';
 import { logger } from './mastercode_port/services/logService';
+import { initPromptLoader } from './personas/PromptLoader';
+import { loadSettings } from './settings';
+import { initializeMemory } from './memory';
 
 let claudeProvider: AIProvider;
 let gptProvider: AIProvider;
@@ -34,10 +38,14 @@ let templateService: TemplateService;
 let knowledgeBase: KnowledgeBaseService;
 let mcpManager: MCPManager;
 let voiceService: VoiceService;
+let soundService: SoundService;
 let pricingService: PricingService;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   logger.info('general', 'SpaceCode extension activating...');
+
+  // Load persisted settings from globalState
+  await loadSettings(context);
 
   // Services
   authService = new AuthService();
@@ -57,6 +65,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   voiceService = new VoiceService();
   await voiceService.initialize(context);
+
+  soundService = SoundService.getInstance();
+  await soundService.initialize(context);
+
+  // Initialize memory system (MessageStore + VectorStore + EmbeddingService)
+  try {
+    await initializeMemory(context);
+    logger.info('general', 'Memory system initialized');
+  } catch (memErr: any) {
+    logger.warn('general', 'Memory system init failed (non-fatal): ' + (memErr?.message || memErr));
+  }
+
+  // Initialize persona prompt loader with extension root
+  initPromptLoader(context.extensionUri.fsPath);
 
   pricingService = new PricingService();
   pricingService.initialize(context);
@@ -113,6 +135,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.executeCommand('spacecode.openPanel');
   }
 
+  // Close secondary sidebar (auxiliary bar) — SpaceCode owns the right panel via webview
+  // KEEP IN SYNC with .dev-tools/layout-enforcer/extension.js (dev editing window mirror)
+  vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+
   logger.info('general', 'SpaceCode extension activated!');
 }
 
@@ -128,6 +154,12 @@ async function initializeProviders(): Promise<void> {
     claudeProvider = new ClaudeCliProvider();
     try {
       await claudeProvider.configure({});
+      // Set the model from saved config
+      const savedClaudeModel = config.get<string>('claudeModel', 'claude-sonnet-4-5');
+      if ('setModel' in claudeProvider) {
+        (claudeProvider as any).setModel(savedClaudeModel);
+        logger.info('general', `Claude CLI model set to: ${savedClaudeModel}`);
+      }
     } catch (error) {
       logger.error('general', `Failed to configure Claude CLI: ${String(error)}`);
     }
@@ -150,6 +182,12 @@ async function initializeProviders(): Promise<void> {
     gptProvider = new GptCliProvider();
     try {
       await gptProvider.configure({});
+      // Set the model from saved config
+      const savedGptModel = config.get<string>('gptModel', 'gpt-4o');
+      if ('setModel' in gptProvider) {
+        (gptProvider as any).setModel(savedGptModel);
+        logger.info('general', `GPT CLI model set to: ${savedGptModel}`);
+      }
     } catch (error) {
       logger.error('general', `Failed to configure GPT CLI: ${String(error)}`);
     }

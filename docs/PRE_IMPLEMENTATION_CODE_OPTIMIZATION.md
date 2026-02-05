@@ -3,15 +3,15 @@
 **Purpose**: Make the current codebase modular and stable before Implementation V2. This is a preparation step to reduce risk, remove duplication, and improve maintainability.
 
 **Scope**: TS/JS only. No feature changes. No behavior changes.
-**Last scan**: 2026-02-03
+**Last scan**: 2026-02-04
 
 ---
 
 ## 1) Current Structural Risks
 
 ### 1.1 God Classes / Oversized Files (Top 20 by LOC)
-- `media/panel.js` (9,385) – monolithic webview UI logic (not built from source)
-- `src/mastercode_port/ui/mainPanel.ts` (6,772) – huge webview controller + business logic
+- ~~`media/panel.js` (9,385)~~ → split into 39 modules under `src/webview/panel/` (DONE)
+- `src/mastercode_port/ui/mainPanel.ts` (4,067, was 6,772) – backend controller (IN PROGRESS)
 - `src/mastercode_port/services/knowledgeBase.ts` (1,011)
 - `src/swarm/SwarmCoordinator.ts` (852)
 - `src/mastercode_port/orchestrator/conversation.ts` (793)
@@ -79,30 +79,106 @@ Found in multiple classes:
 
 ## 3) Modularization Strategy (Pre-Implementation)
 
-### 3.1 Webview Modularization (P0)
+### 3.1 Webview Modularization (P0) — COMPLETE
 **Goal**: Make panel UI maintainable before V2.
 
-Actions:
-- Move `media/panel.js` into `src/webview/panel/` (source of truth)
-- Add esbuild target to generate `media/panel.js`
-- Split into:
-  - `state/` (store, reducers, selectors)
-  - `ipc/` (postMessage bridge, events)
-  - `ui/` (layout, tabs, panel renderers)
-  - `features/` (chat, station, flow, dashboard)
+**Result**: `index.ts` reduced from 9,385 lines to 1,026 (wiring-only). 39 total files across 3 directories.
 
-### 3.2 Shared Webview Base (P0)
-Create a shared helper for:
-- CSP generation
-- HTML template assembly
-- resource URI helpers
-- standardized postMessage
+**Structure**:
+```
+src/webview/panel/
+├── index.ts              (1,026 LOC — wiring only, no local functions)
+├── state.ts              (constants, UI state, tab/mode enums)
+├── ipc/
+│   └── messageRouter.ts  (inbound message routing switch)
+├── features/
+│   ├── agents.ts         — workflow panel
+│   ├── asmdef.ts         — asmdef rendering
+│   ├── autoexecute.ts    — job list + approvals
+│   ├── chatInput.ts      — input, attachments, compaction
+│   ├── chatMode.ts       — chat mode switching
+│   ├── chatRenderer.ts   — message render + streaming
+│   ├── chatSessions.ts   — tabbed chat sessions
+│   ├── chatTools.ts      — GPT opinion + chat split
+│   ├── contextPreview.ts — context preview + copy
+│   ├── controlTabs.ts    — control panel tabs
+│   ├── dashboard.ts      — dashboard main
+│   ├── dashboardStats.ts — dashboard stats + logs
+│   ├── docTargets.ts     — doc target selection
+│   ├── flow.ts           — AI flow visualization
+│   ├── kb.ts             — KB panel + crawl UI
+│   ├── mcp.ts            — MCP panel
+│   ├── modelToolbar.ts   — model/consultant/reasoning selectors
+│   ├── plans.ts          — plan list/summary/generate
+│   ├── rightPanel.ts     — right panel mode + toggles
+│   ├── settingsPanel.ts  — settings + costs + tooling
+│   ├── sideChat.ts       — side chat UI
+│   ├── skills.ts         — skills panel
+│   ├── splitter.ts       — main splitter drag logic
+│   ├── station.ts        — station view + asmdef actions
+│   ├── tabs.ts           — main tab switching
+│   ├── tickets.ts        — main tickets panel
+│   ├── ticketsSidebar.ts — ticket sidebar UI
+│   ├── tokenBar.ts       — token usage + pricing
+│   ├── unityPanel.ts     — Unity panel
+│   ├── verificationPanel.ts — tests + plan execution
+│   └── voice.ts          — voice panel
+└── utils/
+    ├── context.ts        — context limits
+    ├── dom.ts            — escapeHtml
+    ├── ids.ts            — ID helpers
+    ├── status.ts         — shipSetStatus
+    └── toast.ts          — toasts
+```
 
-Apply to:
-- `mainPanel.ts`
-- `panel.ts`
-- `sidebarProvider.ts`
-- `hotspotToolPanel.ts`
+### 3.2 Backend Modularization (P0) — IN PROGRESS
+**Goal**: Break `mainPanel.ts` (was 6,772 LOC, now 4,067) into handler modules.
+
+**Completed extractions**:
+- `src/mastercode_port/ui/mainPanelHtml.ts` — `buildMainPanelHtml()` (~1.6k LOC of HTML)
+- `src/mastercode_port/ui/mainPanelTypes.ts` — ChatState + AutoexecuteJob types
+- `src/mastercode_port/ui/mainPanelRouter.ts` — `handleMainPanelMessage()` message switch
+- `src/mastercode_port/ui/impl/docsImpl.ts` — doc targets/open/info controller logic
+- `src/mastercode_port/ui/impl/chatImpl.ts` — chat send + mastermind controller logic
+- `src/mastercode_port/ui/impl/settingsImpl.ts` — settings/git settings + costs + pricing
+- `src/mastercode_port/ui/impl/gitImpl.ts` — git operations controller
+- `src/mastercode_port/ui/impl/voiceImpl.ts` — voice settings + mic/speaker controller
+- `src/mastercode_port/ui/impl/mcpImpl.ts` — MCP server management + ping
+- `src/mastercode_port/ui/impl/kbImpl.ts` — KB entries + embedder + logs + stats
+- `src/mastercode_port/ui/impl/plansImpl.ts` — plans/AI review controller
+- `src/mastercode_port/ui/impl/ticketsImpl.ts` — tickets controller
+- `src/mastercode_port/ui/impl/unityImpl.ts` — Unity cockpit controller
+- `src/mastercode_port/ui/impl/workflowsImpl.ts` — workflow controller
+- `src/mastercode_port/ui/impl/autoexecuteImpl.ts` — autoexecute + gates/docs checks
+- `src/mastercode_port/ui/impl/shipImpl.ts` — ship/station actions + context preview
+- `src/mastercode_port/ui/impl/verificationImpl.ts` — diff/test/plan-compare controller
+- `src/mastercode_port/ui/impl/cliImpl.ts` — CLI status/login controller
+- `src/mastercode_port/ui/impl/miscImpl.ts` — logs/terminal/pricing/whisper download helpers
+- `src/mastercode_port/ui/impl/senseiImpl.ts` — Sensei/Unity MCP wrappers
+- `src/mastercode_port/ui/impl/githubImpl.ts` — GitHub integration controller
+- `src/mastercode_port/ui/handlers/docs.ts` — doc target handlers
+- `src/mastercode_port/ui/handlers/autoexecute.ts` — autoexecute handlers
+- `src/mastercode_port/ui/handlers/ship.ts` — ship/station handlers
+- `src/mastercode_port/ui/handlers/asmdef.ts` — asmdef handlers
+- `src/mastercode_port/ui/handlers/plans.ts` — plan handlers
+- `src/mastercode_port/ui/handlers/tickets.ts` — ticket handlers
+- `src/mastercode_port/ui/handlers/unity.ts` — Unity handlers
+- `src/mastercode_port/ui/handlers/git.ts` — Git handlers
+- `src/mastercode_port/ui/handlers/mcp.ts` — MCP handlers
+- `src/mastercode_port/ui/handlers/kb.ts` — KB handlers
+- `src/mastercode_port/ui/handlers/voice.ts` — voice handlers
+- `src/mastercode_port/ui/handlers/settings.ts` — settings/logs handlers
+- `src/mastercode_port/ui/handlers/workflows.ts` — workflow handlers
+- `src/mastercode_port/ui/handlers/assistant.ts` — chat/model handlers
+- `src/mastercode_port/ui/handlers/sensei.ts` — CodeSensei handlers
+- `src/mastercode_port/ui/handlers/shipActions.ts` — ship context + station actions
+- `src/mastercode_port/ui/handlers/misc.ts` — misc UI helpers
+- `src/mastercode_port/ui/handlers/dashboard.ts` — dashboard metrics/activity/db-stats/logs handlers
+
+**Remaining**: Split `mainPanel.ts` itself into per-feature handler modules (controller logic).
+
+### 3.2.1 Shared Webview Base (Deferred)
+Create shared helpers for CSP generation, HTML template assembly, resource URI helpers, and standardized postMessage. Apply to `mainPanel.ts`, `panel.ts`, `sidebarProvider.ts`, `hotspotToolPanel.ts`. Deferred until backend modularization is complete.
 
 ### 3.3 Provider Core (P1)
 Centralize shared provider logic:
@@ -155,9 +231,11 @@ Choose a single KB layer and delete the other:
 ## 6) Pre-Implementation Tasks (Checklist)
 
 **P0 (must do before V2):**
-- Panel.js source move + build target
-- Split panel.js into modules
-- Shared webview base utilities
+- Panel.js source move + build target (DONE)
+- Split panel.js into 39 frontend modules (DONE)
+- Backend mainPanel.ts handler extraction (IN PROGRESS — GPT)
+- Shared webview base utilities (deferred until backend split done)
+- Wire Coplay MCP transport in `coplayClient.ts` (DONE) — replaced stubbed `callTool()` with real stdio JSON-RPC transport. Spawns `coplay-mcp-server` as child process, communicates via stdin/stdout, handles MCP initialize handshake, request/response correlation, timeouts, process lifecycle. Also fixed hardcoded `/Users/blade/.local/bin/uvx` path in `mcpManager.ts`.
 
 **P1 (strongly recommended):**
 - Provider core refactor
